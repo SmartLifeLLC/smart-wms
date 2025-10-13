@@ -28,6 +28,7 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            ->topNavigation() // トップナビゲーションを有効化
             ->colors([
                 'primary' => Color::Amber,
             ])
@@ -40,6 +41,14 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 AccountWidget::class,
                 FilamentInfoWidget::class,
+            ])
+            ->navigationGroups([
+                '入荷',
+                '出荷',
+                '在庫',
+                '棚卸し',
+                '配送管理',
+                '管理',
             ])
             ->middleware([
                 EncryptCookies::class,

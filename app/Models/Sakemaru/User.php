@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\Schema;
 class User extends Authenticatable
 {
 
-
+    protected $connection = 'sakemaru';
+    protected $table = 'users';
+    protected $primaryKey = 'id';
     public $timestamps = false;
     /**
      * The attributes that are mass assignable.

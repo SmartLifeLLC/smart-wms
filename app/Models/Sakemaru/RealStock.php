@@ -12,7 +12,13 @@ class RealStock extends CustomModel
     use HasFactory;
 
     protected $guarded = [];
-    protected $casts = [];
+    protected $casts = [
+        'expiration_date' => 'date',
+        'received_at' => 'datetime',
+        'wms_reserved_qty' => 'integer',
+        'wms_picking_qty' => 'integer',
+        'wms_lock_version' => 'integer',
+    ];
 
     public function stock_allocation(): belongsTo
     {
@@ -39,5 +45,18 @@ class RealStock extends CustomModel
         return $this->belongsTo(Item::class);
     }
 
+    // WMS Scopes
+    public function scopeFefoFifo($query)
+    {
+        return $query
+            ->orderByRaw('CASE WHEN expiration_date IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('expiration_date', 'asc')
+            ->orderBy('received_at', 'asc')
+            ->orderBy('id', 'asc');
+    }
 
+    public function scopeAvailableForWms($query)
+    {
+        return $query->whereRaw('current_quantity > (wms_reserved_qty + wms_picking_qty)');
+    }
 }

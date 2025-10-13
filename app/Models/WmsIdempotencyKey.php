@@ -2,9 +2,7 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
-
-class WmsIdempotencyKey extends Model
+class WmsIdempotencyKey extends WmsModel
 {
     protected $table = 'wms_idempotency_keys';
 

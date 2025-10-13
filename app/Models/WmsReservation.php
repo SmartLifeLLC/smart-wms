@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\Sakemaru\Item;
+use App\Models\Sakemaru\Location;
+use App\Models\Sakemaru\RealStock;
+use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class WmsReservation extends Model
+class WmsReservation extends WmsModel
 {
     protected $table = 'wms_reservations';
 
     protected $fillable = [
-        'client_id',
         'warehouse_id',
         'location_id',
         'real_stock_id',
@@ -56,10 +58,6 @@ class WmsReservation extends Model
         return $this->belongsTo(Location::class);
     }
 
-    public function client(): BelongsTo
-    {
-        return $this->belongsTo(Client::class);
-    }
 
     // Status constants
     public const STATUS_RESERVED = 'RESERVED';

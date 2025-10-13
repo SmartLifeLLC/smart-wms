@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\Sakemaru\Item;
+use App\Models\Sakemaru\RealStock;
+use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class StockAvailable extends Model
+class WmsStockAvailable extends WmsModel
 {
     protected $table = 'wms_v_stock_available';
 
