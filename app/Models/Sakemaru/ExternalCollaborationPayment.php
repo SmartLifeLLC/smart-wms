@@ -3,7 +3,6 @@
 namespace App\Models\Sakemaru;
 
 
-use App\Traits\LogPdfTrait;
 use App\Traits\QuantityTrait;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -11,7 +10,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ExternalCollaborationPayment extends CustomModel
 {
     use QuantityTrait;
-    use LogPdfTrait;
 
     protected $guarded = [];
     protected $casts = [

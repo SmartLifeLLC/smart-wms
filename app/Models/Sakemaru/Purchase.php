@@ -2,9 +2,9 @@
 
 namespace App\Models\Sakemaru;
 
-use App\Enums\EExportType;
+
 use App\Enums\PrintType;
-use App\Traits\LogPdfTrait;
+
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\MorphToMany;
 class Purchase extends CustomModel
 {
     use HasFactory;
-    use LogPdfTrait;
+
 
     protected $guarded = [];
     protected $casts = [];

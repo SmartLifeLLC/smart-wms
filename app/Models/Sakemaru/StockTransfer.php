@@ -3,14 +3,12 @@
 namespace App\Models\Sakemaru;
 
 use App\Enums\PrintType;
-use App\Traits\LogPdfTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class StockTransfer extends CustomModel
 {
     use HasFactory;
-    use LogPdfTrait;
 
     protected $guarded = [];
     protected $casts = [];

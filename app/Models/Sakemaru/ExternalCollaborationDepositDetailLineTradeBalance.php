@@ -4,7 +4,6 @@ namespace App\Models\Sakemaru;
 
 
 use App\Enums\PrintType;
-use App\Traits\LogPdfTrait;
 use App\Traits\SyncTradeTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -13,7 +12,6 @@ class ExternalCollaborationDepositDetailLineTradeBalance extends CustomModel
 {
     use HasFactory;
     use SyncTradeTrait;
-    use LogPdfTrait;
 
 
     protected $guarded = [];

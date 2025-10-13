@@ -6,7 +6,6 @@ use App\Models\Sakemaru\Bill;
 use App\Models\Sakemaru\ClosingBalanceOverview;
 use App\Models\Sakemaru\CustomModel;
 use App\Models\Sakemaru\Trade;
-use App\Traits\LogPdfTrait;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
@@ -14,7 +13,6 @@ use Illuminate\Database\Eloquent\Relations\MorphOne;
 
 class ClosingBill extends CustomModel
 {
-    use LogPdfTrait;
     protected $guarded = [];
     protected $casts = [];
 

@@ -3,14 +3,12 @@
 namespace App\Models\Sakemaru;
 
 
-use App\Traits\LogPdfTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 
 class ExternalCollaborationEarning extends CustomModel
 {
-    use LogPdfTrait;
 
 
     protected $guarded = [];
