@@ -4,14 +4,12 @@ namespace App\Models\Sakemaru;
 
 
 use App\Traits\LogPdfTrait;
-use App\Traits\SyncTradeTrait;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 
 class ExternalCollaborationEarning extends CustomModel
 {
-    use SyncTradeTrait;
     use LogPdfTrait;
 
 
