@@ -65,23 +65,8 @@ return new class extends Migration
         });
 
         // Add WMS columns to existing real_stocks table
-        if (Schema::hasTable('real_stocks')) {
-            Schema::table('real_stocks', function (Blueprint $table) {
-                if (!Schema::hasColumn('real_stocks', 'wms_reserved_qty')) {
-                    $table->integer('wms_reserved_qty')->default(0);
-                }
-                if (!Schema::hasColumn('real_stocks', 'wms_picking_qty')) {
-                    $table->integer('wms_picking_qty')->default(0);
-                }
-                if (!Schema::hasColumn('real_stocks', 'wms_lock_version')) {
-                    $table->integer('wms_lock_version')->default(0);
-                }
-            });
-        }
-
         // Create view for available stock (only if real_stocks exists)
-        if (Schema::hasTable('real_stocks')) {
-            DB::statement("
+        DB::statement("
                 CREATE OR REPLACE VIEW wms_v_stock_available AS
                 SELECT
                     rs.id AS real_stock_id,
@@ -95,10 +80,10 @@ return new class extends Migration
                     rs.current_quantity,
                     GREATEST(rs.available_quantity - (rs.wms_reserved_qty + rs.wms_picking_qty), 0) AS available_for_wms,
                     rs.wms_reserved_qty,
-                    rs.wms_picking_qty
+                    rs.wms_picking_qty,
+                    rs.created_at
                 FROM real_stocks rs
             ");
-        }
 
         // Note: clients, items, locations tables are managed by core system (sakemaru)
         // These tables should already exist in the database
