@@ -29,6 +29,7 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->topNavigation() // トップナビゲーションを有効化
+            ->viteTheme('resources/css/filament/admin/theme.css')
             ->colors([
                 'primary' => Color::Amber,
             ])
@@ -43,6 +44,7 @@ class AdminPanelProvider extends PanelProvider
                 FilamentInfoWidget::class,
             ])
             ->navigationGroups([
+                '入出荷管理',
                 '入荷',
                 '出荷',
                 '在庫',
