@@ -27,8 +27,6 @@ return new class extends Migration
             }
         });
 
-        // Drop clients table if it exists
-        Schema::dropIfExists('clients');
     }
 
     /**
@@ -45,12 +43,6 @@ return new class extends Migration
             $table->unsignedBigInteger('client_id')->after('id');
         });
 
-        // Recreate clients table
-        Schema::create('clients', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->string('code')->unique();
-            $table->timestamps();
-        });
+
     }
 };
