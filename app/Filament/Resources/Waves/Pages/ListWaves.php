@@ -1,14 +1,14 @@
 <?php
 
-namespace App\Filament\Resources\WmsUsers\Pages;
+namespace App\Filament\Resources\Waves\Pages;
 
-use App\Filament\Resources\WmsUsers\WmsUserResource;
+use App\Filament\Resources\Waves\WaveResource;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
-class ListWmsUsers extends ListRecords
+class ListWaves extends ListRecords
 {
-    protected static string $resource = WmsUserResource::class;
+    protected static string $resource = WaveResource::class;
 
     protected function getHeaderActions(): array
     {

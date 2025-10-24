@@ -15,13 +15,21 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('real_stocks', function (Blueprint $table) {
-            $table->integer('wms_reserved_qty')->nullable(false)->default(0)->comment('WMS引当拘束（ピッキング未開始）')->after('available_quantity');
-            $table->integer('wms_picking_qty')->nullable(false)->default(0)->comment('WMSピッキング進行中拘束')->after('wms_reserved_qty');
-            $table->integer('wms_lock_version')->nullable(false)->default(0)->comment('楽観ロック用バージョン')->after('updated_at')->index();
+        // WMS Real Stocks - WMS-specific stock tracking (separate from core real_stocks)
+        Schema::connection('sakemaru')->create('wms_real_stocks', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('real_stock_id')->comment('Link to core real_stocks.id');
+            $table->integer('wms_reserved_qty')->nullable(false)->default(0)->comment('WMS引当拘束（ピッキング未開始）');
+            $table->integer('wms_picking_qty')->nullable(false)->default(0)->comment('WMSピッキング進行中拘束');
+            $table->integer('wms_lock_version')->nullable(false)->default(0)->comment('楽観ロック用バージョン');
+            $table->timestamps();
+
+            $table->unique('real_stock_id');
+            $table->index('wms_lock_version');
         });
+
         // WMS Reservations - Stock allocation tracking
-        Schema::create('wms_reservations', function (Blueprint $table) {
+        Schema::connection('sakemaru')->create('wms_reservations', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('client_id');
             $table->unsignedBigInteger('warehouse_id');
@@ -46,7 +54,7 @@ return new class extends Migration
         });
 
         // WMS Idempotency Keys - Prevent duplicate operations
-        Schema::create('wms_idempotency_keys', function (Blueprint $table) {
+        Schema::connection('sakemaru')->create('wms_idempotency_keys', function (Blueprint $table) {
             $table->id();
             $table->string('scope', 64);
             $table->char('key_hash', 64);
@@ -56,7 +64,7 @@ return new class extends Migration
         });
 
         // WMS Stock Allocations
-        Schema::create('wms_stock_allocations', function (Blueprint $table) {
+        Schema::connection('sakemaru')->create('wms_stock_allocations', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('client_id');
             $table->unsignedBigInteger('warehouse_id');
@@ -64,9 +72,8 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        // Add WMS columns to existing real_stocks table
-        // Create view for available stock (only if real_stocks exists)
-        DB::statement("
+        // Create view for available stock with WMS tracking
+        DB::connection('sakemaru')->statement("
                 CREATE OR REPLACE VIEW wms_v_stock_available AS
                 SELECT
                     rs.id AS real_stock_id,
@@ -78,11 +85,13 @@ return new class extends Migration
                     rs.purchase_id,
                     rs.price AS unit_cost,
                     rs.current_quantity,
-                    GREATEST(rs.available_quantity - (rs.wms_reserved_qty + rs.wms_picking_qty), 0) AS available_for_wms,
-                    rs.wms_reserved_qty,
-                    rs.wms_picking_qty,
+                    GREATEST(rs.available_quantity - COALESCE(wrs.wms_reserved_qty, 0) - COALESCE(wrs.wms_picking_qty, 0), 0) AS available_for_wms,
+                    COALESCE(wrs.wms_reserved_qty, 0) AS wms_reserved_qty,
+                    COALESCE(wrs.wms_picking_qty, 0) AS wms_picking_qty,
+                    COALESCE(wrs.wms_lock_version, 0) AS wms_lock_version,
                     rs.created_at
                 FROM real_stocks rs
+                LEFT JOIN wms_real_stocks wrs ON rs.id = wrs.real_stock_id
             ");
 
         // Note: clients, items, locations tables are managed by core system (sakemaru)
@@ -94,32 +103,15 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('real_stocks', function (Blueprint $table) {
-            $table->dropColumn(['wms_reserved_qty', 'wms_picking_qty', 'wms_lock_version']);
-        });
         // Drop view
-        DB::statement('DROP VIEW IF EXISTS wms_v_stock_available');
+        DB::connection('sakemaru')->statement('DROP VIEW IF EXISTS wms_v_stock_available');
 
-        // Remove WMS columns from real_stocks if exists
-        if (Schema::hasTable('real_stocks')) {
-            Schema::table('real_stocks', function (Blueprint $table) {
-                if (Schema::hasColumn('real_stocks', 'wms_reserved_qty')) {
-                    $table->dropColumn('wms_reserved_qty');
-                }
-                if (Schema::hasColumn('real_stocks', 'wms_picking_qty')) {
-                    $table->dropColumn('wms_picking_qty');
-                }
-                if (Schema::hasColumn('real_stocks', 'wms_lock_version')) {
-                    $table->dropColumn('wms_lock_version');
-                }
-            });
-        }
+        // Drop WMS tables
+        Schema::connection('sakemaru')->dropIfExists('wms_stock_allocations');
+        Schema::connection('sakemaru')->dropIfExists('wms_idempotency_keys');
+        Schema::connection('sakemaru')->dropIfExists('wms_reservations');
+        Schema::connection('sakemaru')->dropIfExists('wms_real_stocks');
 
-        // Drop WMS tables only
-        Schema::dropIfExists('wms_stock_allocations');
-        Schema::dropIfExists('wms_idempotency_keys');
-        Schema::dropIfExists('wms_reservations');
-
-        // Note: clients, items, locations are NOT dropped as they are managed by core system
+        // Note: clients, items, locations, real_stocks are NOT dropped as they are managed by core system
     }
 };

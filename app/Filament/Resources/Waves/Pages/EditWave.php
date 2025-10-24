@@ -1,14 +1,14 @@
 <?php
 
-namespace App\Filament\Resources\WmsUsers\Pages;
+namespace App\Filament\Resources\Waves\Pages;
 
-use App\Filament\Resources\WmsUsers\WmsUserResource;
+use App\Filament\Resources\Waves\WaveResource;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 
-class EditWmsUser extends EditRecord
+class EditWave extends EditRecord
 {
-    protected static string $resource = WmsUserResource::class;
+    protected static string $resource = WaveResource::class;
 
     protected function getHeaderActions(): array
     {
