@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Earning;
 use App\Models\Wave;
 use App\Models\WaveSetting;
@@ -16,7 +17,9 @@ class GenerateWavesCommand extends Command
 
     public function handle()
     {
-        $shippingDate = $this->option('date') ?? now()->format('Y-m-d');
+        $shippingDate = $this->option('date') ?? ClientSetting::systemDate()->format('Y-m-d');
+
+
         $shouldReset = $this->option('reset');
 
         $this->info("Generating waves for shipping date: {$shippingDate}");
@@ -137,18 +140,21 @@ class GenerateWavesCommand extends Command
 
                     // Create picking item results and reserve stock for each trade item
                     foreach ($tradeItems as $tradeItem) {
-                        // Reserve stock for this trade item (FEFO logic) and get allocated quantity
-                        $allocatedQty = $this->reserveStockForTradeItem($wave->id, $earning, $tradeItem);
+                        // Reserve stock for this trade item (FEFO logic) and get allocated quantity + location info
+                        $reservationResult = $this->reserveStockForTradeItem($wave->id, $earning, $tradeItem);
 
-                        // Create picking item result
+                        // Create picking item result with location information for picking list sorting
                         DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
                             'picking_task_id' => $pickingTaskId,
                             'trade_item_id' => $tradeItem->id,
                             'item_id' => $tradeItem->item_id,
                             'real_stock_id' => null, // Will be set during actual picking
+                            'location_id' => $reservationResult['location_id'], // Primary picking location
+                            'zone_code' => $reservationResult['zone_code'], // For picking list sorting
+                            'walking_order' => $reservationResult['walking_order'], // For picking list sorting
                             'ordered_qty' => $tradeItem->quantity, // Original order quantity
                             'ordered_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // From trade_items.quantity_type
-                            'planned_qty' => $allocatedQty, // Allocated quantity from reservations
+                            'planned_qty' => $reservationResult['allocated_qty'], // Allocated quantity from reservations
                             'planned_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // Same as ordered (for now)
                             'picked_qty' => 0, // Will be set by picker during picking
                             'picked_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // Will be set by picker
@@ -183,35 +189,58 @@ class GenerateWavesCommand extends Command
     /**
      * Reserve stock for a trade item using FEFO logic
      *
-     * @return int The total allocated quantity
+     * @return array ['allocated_qty' => int, 'location_id' => int|null, 'zone_code' => string|null, 'walking_order' => int|null]
      */
-    protected function reserveStockForTradeItem($waveId, $earning, $tradeItem): int
+    protected function reserveStockForTradeItem($waveId, $earning, $tradeItem): array
     {
         $needQty = $tradeItem->quantity;
         $warehouseId = $earning->warehouse_id;
         $itemId = $tradeItem->item_id;
         $totalAllocated = 0;
 
-        // Get available stocks ordered by FEFO (expiry date first) and location
+        // Track primary location (first allocated location for picking list sorting)
+        $primaryLocationId = null;
+        $primaryZoneCode = null;
+        $primaryWalkingOrder = null;
+
+        // Get available stocks ordered by FEFO (expiry date first), walking order, and FIFO
         // Join with wms_real_stocks to get reserved quantities
+        // Join with wms_locations to filter by picking_unit_type and optimize walking order
+        $quantityType = $tradeItem->quantity_type ?? 'PIECE';
+
         $stocks = DB::connection('sakemaru')
             ->table('real_stocks as rs')
             ->leftJoin('wms_real_stocks as wrs', 'rs.id', '=', 'wrs.real_stock_id')
+            ->leftJoin('wms_locations as wl', 'rs.location_id', '=', 'wl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
             ->whereRaw('rs.available_quantity > COALESCE(wrs.wms_reserved_qty, 0) + COALESCE(wrs.wms_picking_qty, 0)')
+            // Filter by picking_unit_type: match order's quantity_type or 'BOTH'
+            ->where(function ($query) use ($quantityType) {
+                $query->whereNull('wl.picking_unit_type') // Allow locations without wms_locations record
+                      ->orWhere('wl.picking_unit_type', '=', $quantityType)
+                      ->orWhere('wl.picking_unit_type', '=', 'BOTH');
+            })
             ->select(
                 'rs.id as real_stock_id',
+                'rs.location_id',
                 'rs.expiration_date',
                 'rs.available_quantity',
                 'rs.purchase_id',
                 'rs.price',
+                'rs.item_id',
                 DB::raw('COALESCE(wrs.wms_reserved_qty, 0) as reserved_qty'),
                 DB::raw('COALESCE(wrs.wms_picking_qty, 0) as picking_qty'),
-                DB::raw('rs.available_quantity - COALESCE(wrs.wms_reserved_qty, 0) - COALESCE(wrs.wms_picking_qty, 0) as available_for_wms')
+                DB::raw('rs.available_quantity - COALESCE(wrs.wms_reserved_qty, 0) - COALESCE(wrs.wms_picking_qty, 0) as available_for_wms'),
+                DB::raw('COALESCE(wl.zone_code, "ZZZZZ") as zone_code'), // NULL zone goes last
+                DB::raw('COALESCE(wl.walking_order, 999999) as walking_order'), // NULL walking_order goes last
+                'wl.picking_unit_type'
             )
             ->orderByRaw('rs.expiration_date IS NULL') // NULL expiry last
             ->orderBy('rs.expiration_date', 'asc') // FEFO: earliest expiry first
+            ->orderBy('zone_code', 'asc') // Zone order: pick by temperature zone (常温 < 冷蔵 < 冷凍)
+            ->orderBy('walking_order', 'asc') // Walking order: optimize picker routing
+            ->orderBy('rs.item_id', 'asc') // Item order: group by item for batch picking
             ->orderBy('rs.id', 'asc') // FIFO: oldest stock first
             ->lockForUpdate() // Pessimistic lock
             ->get();
@@ -223,10 +252,17 @@ class GenerateWavesCommand extends Command
             $allocQty = min($needQty, $stock->available_for_wms);
 
             if ($allocQty > 0) {
+                // Save primary location info from first allocation (for picking list sorting)
+                if ($primaryLocationId === null) {
+                    $primaryLocationId = $stock->location_id;
+                    $primaryZoneCode = $stock->zone_code === 'ZZZZZ' ? null : $stock->zone_code;
+                    $primaryWalkingOrder = $stock->walking_order === 999999 ? null : $stock->walking_order;
+                }
+
                 // Create reservation record with allocated quantity
                 DB::connection('sakemaru')->table('wms_reservations')->insert([
                     'warehouse_id' => $warehouseId,
-                    'location_id' => null,
+                    'location_id' => $stock->location_id,
                     'real_stock_id' => $stock->real_stock_id,
                     'item_id' => $itemId,
                     'expiry_date' => $stock->expiration_date,
@@ -309,7 +345,12 @@ class GenerateWavesCommand extends Command
             $this->warn("  {$status} for item {$itemId}: {$needQty} units could not be reserved (allocated: {$totalAllocated})");
         }
 
-        return $totalAllocated;
+        return [
+            'allocated_qty' => $totalAllocated,
+            'location_id' => $primaryLocationId,
+            'zone_code' => $primaryZoneCode,
+            'walking_order' => $primaryWalkingOrder,
+        ];
     }
 
     /**

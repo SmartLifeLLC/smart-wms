@@ -16,6 +16,11 @@ class Location extends CustomModel
     {
         return $this->belongsTo(Warehouse::class);
     }
+
+    public function wmsLocation()
+    {
+        return $this->hasOne(\App\Models\WmsLocation::class, 'location_id', 'id');
+    }
     public function joinedLocation() : Attribute
     {
         return Attribute::make(
