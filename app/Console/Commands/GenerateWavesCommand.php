@@ -118,52 +118,110 @@ class GenerateWavesCommand extends Command
                     ->get();
 
                 // Create picking tasks for each earning
+                // IMPORTANT: Split tasks by picking area when order contains items from multiple areas
                 foreach ($earnings as $earning) {
-                    // Create picking task
-                    $pickingTaskId = DB::connection('sakemaru')->table('wms_picking_tasks')->insertGetId([
-                        'wave_id' => $wave->id,
-                        'warehouse_id' => $setting->warehouse_id,
-                        'earning_id' => $earning->id,
-                        'trade_id' => $earning->trade_id,
-                        'status' => 'PENDING',
-                        'task_type' => 'WAVE',
-                        'picker_id' => null,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-
                     // Get trade items for this earning
                     $tradeItems = DB::connection('sakemaru')
                         ->table('trade_items')
                         ->where('trade_id', $earning->trade_id)
                         ->get();
 
-                    // Create picking item results and reserve stock for each trade item
+                    // Group trade items by picking area
+                    // We determine the picking area by reserving stock first, then grouping by location's area
+                    $itemsByArea = [];
+                    $reservationResults = [];
+
                     foreach ($tradeItems as $tradeItem) {
                         // Reserve stock for this trade item (FEFO logic) and get allocated quantity + location info
                         $reservationResult = $this->reserveStockForTradeItem($wave->id, $earning, $tradeItem);
+                        $reservationResults[$tradeItem->id] = $reservationResult;
 
-                        // Create picking item result with location information for picking list sorting
-                        DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
-                            'picking_task_id' => $pickingTaskId,
-                            'trade_item_id' => $tradeItem->id,
-                            'item_id' => $tradeItem->item_id,
-                            'real_stock_id' => null, // Will be set during actual picking
-                            'location_id' => $reservationResult['location_id'], // Primary picking location
-                            'zone_code' => $reservationResult['zone_code'], // For picking list sorting
-                            'walking_order' => $reservationResult['walking_order'], // For picking list sorting
-                            'ordered_qty' => $tradeItem->quantity, // Original order quantity
-                            'ordered_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // From trade_items.quantity_type
-                            'planned_qty' => $reservationResult['allocated_qty'], // Allocated quantity from reservations
-                            'planned_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // Same as ordered (for now)
-                            'picked_qty' => 0, // Will be set by picker during picking
-                            'picked_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // Will be set by picker
-                            'shortage_qty' => 0, // Will be set by picker during picking
-                            'status' => 'PICKING',
+                        // Get picking area ID from primary location
+                        $pickingAreaId = null;
+                        if ($reservationResult['location_id']) {
+                            $wmsLocation = DB::connection('sakemaru')
+                                ->table('wms_locations')
+                                ->where('location_id', $reservationResult['location_id'])
+                                ->first();
+                            $pickingAreaId = $wmsLocation->wms_picking_area_id ?? null;
+                        }
+
+                        // If no location was found (shortage), try to find any historical location for this item
+                        if ($pickingAreaId === null) {
+                            $itemLocation = DB::connection('sakemaru')
+                                ->table('real_stocks as rs')
+                                ->join('wms_locations as wl', 'rs.location_id', '=', 'wl.location_id')
+                                ->where('rs.warehouse_id', $setting->warehouse_id)
+                                ->where('rs.item_id', $tradeItem->item_id)
+                                ->whereNotNull('wl.wms_picking_area_id')
+                                ->select('wl.wms_picking_area_id')
+                                ->first();
+
+                            if ($itemLocation) {
+                                $pickingAreaId = $itemLocation->wms_picking_area_id;
+                            } else {
+                                // If still no picking area found, assign to first active picking area as default
+                                $defaultArea = DB::connection('sakemaru')
+                                    ->table('wms_picking_areas')
+                                    ->where('warehouse_id', $setting->warehouse_id)
+                                    ->where('is_active', true)
+                                    ->orderBy('display_order', 'asc')
+                                    ->first();
+
+                                $pickingAreaId = $defaultArea->id ?? null;
+                            }
+                        }
+
+                        // Group by picking area (null area items go together)
+                        $areaKey = $pickingAreaId ?? 'null';
+                        if (!isset($itemsByArea[$areaKey])) {
+                            $itemsByArea[$areaKey] = [
+                                'picking_area_id' => $pickingAreaId,
+                                'items' => [],
+                            ];
+                        }
+                        $itemsByArea[$areaKey]['items'][] = $tradeItem;
+                    }
+
+                    // Create one picking task per picking area
+                    foreach ($itemsByArea as $areaData) {
+                        $pickingTaskId = DB::connection('sakemaru')->table('wms_picking_tasks')->insertGetId([
+                            'wave_id' => $wave->id,
+                            'wms_picking_area_id' => $areaData['picking_area_id'],
+                            'warehouse_id' => $setting->warehouse_id,
+                            'earning_id' => $earning->id,
+                            'trade_id' => $earning->trade_id,
+                            'status' => 'PENDING',
+                            'task_type' => 'WAVE',
                             'picker_id' => null,
                             'created_at' => now(),
                             'updated_at' => now(),
                         ]);
+
+                        // Create picking item results for items in this area
+                        foreach ($areaData['items'] as $tradeItem) {
+                            $reservationResult = $reservationResults[$tradeItem->id];
+
+                            DB::connection('sakemaru')->table('wms_picking_item_results')->insert([
+                                'picking_task_id' => $pickingTaskId,
+                                'trade_item_id' => $tradeItem->id,
+                                'item_id' => $tradeItem->item_id,
+                                'real_stock_id' => null, // Will be set during actual picking
+                                'location_id' => $reservationResult['location_id'], // Primary picking location
+                                'walking_order' => $reservationResult['walking_order'], // For picking list sorting
+                                'ordered_qty' => $tradeItem->quantity, // Original order quantity
+                                'ordered_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // From trade_items.quantity_type
+                                'planned_qty' => $reservationResult['allocated_qty'], // Allocated quantity from reservations
+                                'planned_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // Same as ordered (for now)
+                                'picked_qty' => 0, // Will be set by picker during picking
+                                'picked_qty_type' => $tradeItem->quantity_type ?? 'PIECE', // Will be set by picker
+                                'shortage_qty' => 0, // Will be set by picker during picking
+                                'status' => 'PICKING',
+                                'picker_id' => null,
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+                        }
                     }
 
                     // Update earning picking_status to PICKING
@@ -189,7 +247,7 @@ class GenerateWavesCommand extends Command
     /**
      * Reserve stock for a trade item using FEFO logic
      *
-     * @return array ['allocated_qty' => int, 'location_id' => int|null, 'zone_code' => string|null, 'walking_order' => int|null]
+     * @return array ['allocated_qty' => int, 'location_id' => int|null, 'walking_order' => int|null]
      */
     protected function reserveStockForTradeItem($waveId, $earning, $tradeItem): array
     {
@@ -200,7 +258,6 @@ class GenerateWavesCommand extends Command
 
         // Track primary location (first allocated location for picking list sorting)
         $primaryLocationId = null;
-        $primaryZoneCode = null;
         $primaryWalkingOrder = null;
 
         // Get available stocks ordered by FEFO (expiry date first), walking order, and FIFO
@@ -232,13 +289,11 @@ class GenerateWavesCommand extends Command
                 DB::raw('COALESCE(wrs.wms_reserved_qty, 0) as reserved_qty'),
                 DB::raw('COALESCE(wrs.wms_picking_qty, 0) as picking_qty'),
                 DB::raw('rs.available_quantity - COALESCE(wrs.wms_reserved_qty, 0) - COALESCE(wrs.wms_picking_qty, 0) as available_for_wms'),
-                DB::raw('COALESCE(wl.zone_code, "ZZZZZ") as zone_code'), // NULL zone goes last
                 DB::raw('COALESCE(wl.walking_order, 999999) as walking_order'), // NULL walking_order goes last
                 'wl.picking_unit_type'
             )
             ->orderByRaw('rs.expiration_date IS NULL') // NULL expiry last
             ->orderBy('rs.expiration_date', 'asc') // FEFO: earliest expiry first
-            ->orderBy('zone_code', 'asc') // Zone order: pick by temperature zone (常温 < 冷蔵 < 冷凍)
             ->orderBy('walking_order', 'asc') // Walking order: optimize picker routing
             ->orderBy('rs.item_id', 'asc') // Item order: group by item for batch picking
             ->orderBy('rs.id', 'asc') // FIFO: oldest stock first
@@ -255,7 +310,6 @@ class GenerateWavesCommand extends Command
                 // Save primary location info from first allocation (for picking list sorting)
                 if ($primaryLocationId === null) {
                     $primaryLocationId = $stock->location_id;
-                    $primaryZoneCode = $stock->zone_code === 'ZZZZZ' ? null : $stock->zone_code;
                     $primaryWalkingOrder = $stock->walking_order === 999999 ? null : $stock->walking_order;
                 }
 
@@ -348,7 +402,6 @@ class GenerateWavesCommand extends Command
         return [
             'allocated_qty' => $totalAllocated,
             'location_id' => $primaryLocationId,
-            'zone_code' => $primaryZoneCode,
             'walking_order' => $primaryWalkingOrder,
         ];
     }

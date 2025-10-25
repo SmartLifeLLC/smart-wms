@@ -3,6 +3,7 @@
 namespace App\Console\Commands\TestData;
 
 use App\Domains\Sakemaru\SakemaruEarning;
+use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Item;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -96,8 +97,8 @@ class GenerateTestEarningsCommand extends Command
 
     private function generateEarnings(int $count): array
     {
-        $processDate = now()->format('Y-m-d');
-        $shippingDate = now()->addDay()->format('Y-m-d');
+        $processDate = ClientSetting::systemDate()->format('Y-m-d');
+        $shippingDate = $processDate;
 
         $scenarios = [
             ['name' => 'ケース注文（十分な在庫）', 'qty_type' => 'CASE', 'qty' => 2],
@@ -142,7 +143,8 @@ class GenerateTestEarningsCommand extends Command
                 'delivered_date' => $shippingDate,
                 'account_date' => $shippingDate,
                 'buyer_code' => $this->buyerCode,
-                'warehouse_code' => $this->warehouseCode,
+                'warehouse_code' => 991,
+                'delivery_course_code' => '99100001',
                 'note' => "WMSテスト: {$scenario['name']}",
                 'is_delivered' => false,
                 'is_returned' => false,

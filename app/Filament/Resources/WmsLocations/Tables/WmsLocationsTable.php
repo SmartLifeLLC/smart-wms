@@ -30,6 +30,20 @@ class WmsLocationsTable
                     ->searchable()
                     ->sortable(),
 
+                TextColumn::make('pickingArea.name')
+                    ->label('ピッキングエリア')
+                    ->badge()
+                    ->color(fn (?string $state): string => match ($state) {
+                        '常温エリア' => 'success',
+                        '冷蔵エリア' => 'info',
+                        '冷凍エリア' => 'primary',
+                        'ポークリプトエリア' => 'warning',
+                        default => 'gray',
+                    })
+                    ->default('未設定')
+                    ->sortable()
+                    ->searchable(),
+
                 TextColumn::make('picking_unit_type')
                     ->label('引当単位')
                     ->formatStateUsing(fn (string $state): string => match ($state) {
@@ -45,19 +59,6 @@ class WmsLocationsTable
                         'BOTH' => 'warning',
                         default => 'gray',
                     })
-                    ->sortable(),
-
-                TextColumn::make('zone_code')
-                    ->label('ゾーン')
-                    ->badge()
-                    ->color(fn (?string $state): string => match ($state) {
-                        '常温' => 'success',
-                        '冷蔵' => 'info',
-                        '冷凍' => 'primary',
-                        '危険物' => 'danger',
-                        default => 'gray',
-                    })
-                    ->default('未設定')
                     ->sortable(),
 
                 TextColumn::make('walking_order')
@@ -84,21 +85,18 @@ class WmsLocationsTable
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                SelectFilter::make('wms_picking_area_id')
+                    ->label('ピッキングエリア')
+                    ->relationship('pickingArea', 'name')
+                    ->searchable()
+                    ->preload(),
+
                 SelectFilter::make('picking_unit_type')
                     ->label('引当単位')
                     ->options([
                         'CASE' => 'ケース',
                         'PIECE' => 'バラ',
                         'BOTH' => '両方',
-                    ]),
-
-                SelectFilter::make('zone_code')
-                    ->label('ゾーン')
-                    ->options([
-                        '常温' => '常温',
-                        '冷蔵' => '冷蔵',
-                        '冷凍' => '冷凍',
-                        '危険物' => '危険物',
                     ]),
             ])
             ->defaultSort('walking_order', 'asc')

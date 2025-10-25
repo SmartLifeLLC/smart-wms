@@ -14,9 +14,9 @@ class WmsLocation extends Model
 
     protected $fillable = [
         'location_id',
+        'wms_picking_area_id',
         'picking_unit_type',
         'walking_order',
-        'zone_code',
         'aisle',
         'rack',
         'level',
@@ -32,6 +32,14 @@ class WmsLocation extends Model
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class, 'location_id', 'id');
+    }
+
+    /**
+     * このロケーションが属するピッキングエリア
+     */
+    public function pickingArea(): BelongsTo
+    {
+        return $this->belongsTo(WmsPickingArea::class, 'wms_picking_area_id');
     }
 
     /**

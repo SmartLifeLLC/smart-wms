@@ -26,6 +26,7 @@ return [
 
     'core_url' => env('CORE_URL', 'https://bz-core.test'),
     'bzcore_api_token' => env('BZCORE_API_TOKEN'),
+    'sakemaru_api_token' => env('SAKEMARU_API_TOKEN'),
 
     /*
     |--------------------------------------------------------------------------

@@ -35,6 +35,14 @@ class WmsLocationForm
                             ->helperText('WMS属性を追加する基幹システムのロケーションを選択')
                             ->columnSpanFull(),
 
+                        Select::make('wms_picking_area_id')
+                            ->label('ピッキングエリア')
+                            ->relationship('pickingArea', 'name')
+                            ->searchable()
+                            ->preload()
+                            ->helperText('このロケーションが属するピッキングエリア（担当ピッカー分けに使用）')
+                            ->columnSpanFull(),
+
                         Select::make('picking_unit_type')
                             ->label('引当可能単位')
                             ->required()
@@ -45,19 +53,6 @@ class WmsLocationForm
                             ])
                             ->default('BOTH')
                             ->helperText('このロケーションから引き当て可能な商品単位')
-                            ->columnSpan(1),
-
-                        TextInput::make('zone_code')
-                            ->label('温度帯・ゾーン')
-                            ->maxLength(50)
-                            ->placeholder('例: 常温、冷蔵、冷凍、危険物')
-                            ->datalist([
-                                '常温',
-                                '冷蔵',
-                                '冷凍',
-                                '危険物',
-                            ])
-                            ->helperText('温度帯やエリア区分')
                             ->columnSpan(1),
 
                         TextInput::make('walking_order')
