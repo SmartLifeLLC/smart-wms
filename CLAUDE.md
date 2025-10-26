@@ -13,12 +13,17 @@ This WMS system integrates with a core business system (基幹システム) by:
 - **No foreign keys** - data integrity is maintained at the application/job level
 
 **Tech Stack:**
-- Laravel 12 (PHP 8.2+)
-- Filament 4 (Admin Panel)
-- Livewire 3 (For reactive components)
-- Tailwind CSS 4 (Styling)
-- Vite (Asset bundling)
-- SQLite (Default database, configurable)
+- **Laravel 12** (PHP 8.2+)
+- **Filament 4** (Admin Panel Framework)
+  - Uses `Filament\Schemas\Schema` instead of `Filament\Forms\Form`
+  - Uses `Filament\Schemas\Components\Section` for form sections
+  - Actions: Import from `Filament\Actions\*` (not `Filament\Tables\Actions\*`)
+  - Table methods: `->recordActions()` and `->toolbarActions()` (not `->actions()` and `->bulkActions()`)
+- **Livewire 3** (For reactive components)
+- **Tailwind CSS 4** (Styling)
+- **Vite** (Asset bundling)
+- **MySQL** (Production database via `sakemaru` connection)
+- **SQLite** (Default database, configurable)
 
 **Full Specification:** See `storage/specifications/2025-10-13-wms-specification.md` for complete system requirements.
 

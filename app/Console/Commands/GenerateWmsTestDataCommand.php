@@ -41,6 +41,7 @@ class GenerateWmsTestDataCommand extends Command
 
         if (!$this->option('stock-only') && !$this->option('orders-only')) {
             $this->generateLocations();
+            $this->generatePickers();
         }
 
         if (!$this->option('locations-only') && !$this->option('orders-only')) {
@@ -108,6 +109,11 @@ class GenerateWmsTestDataCommand extends Command
 
             // Clean wms_picking_areas for warehouse 991
             WmsPickingArea::where('warehouse_id', $this->warehouseId)->delete();
+
+            // Clean wms_pickers for warehouse 991
+            DB::connection('sakemaru')->table('wms_pickers')
+                ->where('default_warehouse_id', $this->warehouseId)
+                ->delete();
 
             $this->info('  ✓ Test data cleaned');
         });
@@ -275,10 +281,43 @@ class GenerateWmsTestDataCommand extends Command
         $this->info("  ✓ Created {$stockCount} stock records for " . count($this->testItems) . " items");
     }
 
+    private function generatePickers()
+    {
+        $this->info('👷 Generating test pickers...');
+
+        $pickers = [
+            ['code' => 'P001', 'name' => '山田太郎'],
+            ['code' => 'P002', 'name' => '佐藤花子'],
+            ['code' => 'P003', 'name' => '鈴木一郎'],
+            ['code' => 'P004', 'name' => '田中美咲'],
+            ['code' => 'P005', 'name' => '高橋健太'],
+        ];
+
+        $count = 0;
+        foreach ($pickers as $picker) {
+            DB::connection('sakemaru')->table('wms_pickers')->insert([
+                'code' => $picker['code'],
+                'name' => $picker['name'],
+                'password' => bcrypt('password'), // デフォルトパスワード
+                'default_warehouse_id' => $this->warehouseId,
+                'is_active' => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $count++;
+        }
+
+        $this->info("  ✓ Created {$count} pickers");
+    }
+
     private function displaySummary()
     {
         $this->info('📊 Test Data Summary');
         $this->info('═══════════════════════════════════════════════════');
+
+        // Picking Areas
+        $pickingAreaCount = WmsPickingArea::where('warehouse_id', $this->warehouseId)->count();
+        $this->line("🏢 Picking Areas: {$pickingAreaCount}");
 
         // Locations
         $locationCount = Location::where('warehouse_id', $this->warehouseId)->count();
@@ -286,8 +325,14 @@ class GenerateWmsTestDataCommand extends Command
             $query->where('warehouse_id', $this->warehouseId);
         })->count();
 
-        $this->line("📍 Locations: {$locationCount}");
+        $this->line("\n📍 Locations: {$locationCount}");
         $this->line("   WMS Attributes: {$wmsLocationCount}");
+
+        // Pickers
+        $pickerCount = DB::connection('sakemaru')->table('wms_pickers')
+            ->where('default_warehouse_id', $this->warehouseId)
+            ->count();
+        $this->line("\n👷 Pickers: {$pickerCount}");
 
         if (!empty($this->testLocations)) {
             $this->line("\n   Sample locations:");

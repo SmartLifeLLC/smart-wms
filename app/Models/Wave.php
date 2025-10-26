@@ -35,4 +35,12 @@ class Wave extends Model
         $dateFormatted = date('Ymd', strtotime($date));
         return sprintf('W%03d-C%03d-%s-%d', $warehouseCode, $courseCode, $dateFormatted, $waveId);
     }
+
+    /**
+     * Get wave code attribute (same as wave_no)
+     */
+    public function getWaveCodeAttribute(): string
+    {
+        return $this->wave_no ?? "Wave-{$this->id}";
+    }
 }

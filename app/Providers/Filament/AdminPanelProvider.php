@@ -29,6 +29,9 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->topNavigation() // トップナビゲーションを有効化
+            ->maxContentWidth('full')
+            ->breadcrumbs(false) // パンくずリストを無効化
+            ->viteTheme('resources/css/filament/admin/theme.css')
             ->colors([
                 'primary' => Color::Amber,
             ])

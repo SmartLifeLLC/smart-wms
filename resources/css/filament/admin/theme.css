@@ -1,0 +1,66 @@
+@import '../../../../vendor/filament/filament/resources/css/theme.css';
+
+@source '../../../../app/Filament/**/*';
+@source '../../../../resources/views/filament/**/*';
+
+/* カスタムスタイル: 画面幅を最大化 */
+@layer components {
+    .fi-main {
+        @apply max-w-none;
+    }
+
+    .fi-sidebar + .fi-main {
+        @apply max-w-none;
+    }
+
+    .fi-topbar + .fi-main {
+        @apply max-w-none;
+    }
+
+    /* ヘッダーのフォントサイズと余白を調整 */
+    .fi-header-heading {
+        @apply text-xl font-semibold;
+    }
+
+    .fi-header {
+        @apply py-0 my-0;
+    }
+
+    /* ページタイトルのフォントサイズを調整 */
+    .fi-section-header-heading {
+        @apply text-base font-medium;
+    }
+
+    .fi-section-header {
+        @apply py-0 my-0;
+    }
+
+    /* テーブルヘッダーのフォントサイズと余白を調整 */
+    .fi-ta-header-heading {
+        @apply text-base font-medium;
+    }
+
+    .fi-ta-header {
+        @apply py-0 my-0;
+    }
+
+    /* ページ全体の上部余白を調整 */
+    .fi-page {
+        @apply pt-2;
+    }
+
+    /* テーブルとヘッダーの間隔を調整 */
+    .fi-ta {
+        @apply mt-2;
+    }
+
+    /* セクション間の余白を調整 */
+    .fi-section {
+        @apply py-0 my-2;
+    }
+
+    /* ページコンテンツの余白を調整 */
+    .fi-page-content {
+        @apply py-0;
+    }
+}
