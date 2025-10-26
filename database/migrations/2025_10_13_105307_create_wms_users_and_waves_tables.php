@@ -13,8 +13,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // WMS Users - 入・出荷作業者管理
-        Schema::create('wms_users', function (Blueprint $table) {
+        // WMS Pickers - ピッキング作業者管理
+        Schema::connection('sakemaru')->create('wms_pickers', function (Blueprint $table) {
             $table->id();
             $table->string('code')->unique()->comment('作業者コード');
             $table->string('name')->comment('作業者名');
@@ -24,53 +24,51 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        // WMS Waves - 波動ピッキング管理
-        Schema::create('wms_waves', function (Blueprint $table) {
+        // NOTE: wms_waves table is now created in 2025_10_23_040000_create_wms_waves_table.php
+        // This old wave implementation is removed in favor of the new wave generation system
+
+        // WMS Picking Tasks - ピッキングタスク (伝票単位)
+        Schema::connection('sakemaru')->create('wms_picking_tasks', function (Blueprint $table) {
             $table->id();
-            $table->string('wave_no')->comment('波動番号 例: 20251013-A01');
+            $table->unsignedBigInteger('wave_id')->comment('波動ID');
             $table->unsignedBigInteger('warehouse_id')->comment('倉庫ID');
-            $table->time('start_time')->nullable()->comment('ピッキング開始時刻');
-            $table->time('end_time')->nullable()->comment('積込締切時刻');
-            $table->string('route_code')->nullable()->comment('ルートコード');
-            $table->enum('status', ['planned', 'picking', 'completed'])->default('planned')->comment('ステータス');
-            $table->timestamps();
-
-            $table->unique(['warehouse_id', 'wave_no']);
-        });
-
-        // WMS Wave Shipments - 波動と出荷伝票の紐付け
-        Schema::create('wms_wave_shipments', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('wave_id')->comment('波動ID');
-            $table->unsignedBigInteger('earning_id')->comment('売上伝票ID (earnings.id)');
-            $table->timestamps();
-
-            $table->unique(['wave_id', 'earning_id']);
-            $table->index('wave_id');
-        });
-
-        // WMS Picking Tasks - ピッキングタスク
-        Schema::create('wms_picking_tasks', function (Blueprint $table) {
-            $table->id();
-            $table->unsignedBigInteger('wave_id')->comment('波動ID');
-            $table->unsignedBigInteger('item_id')->comment('商品ID');
-            $table->unsignedBigInteger('location_id')->nullable()->comment('ロケーションID');
-            $table->integer('total_qty')->comment('トータル数量');
-            $table->unsignedBigInteger('assigned_worker_id')->nullable()->comment('担当作業者ID');
-            $table->enum('status', ['pending', 'in_progress', 'completed'])->default('pending')->comment('ステータス');
+            $table->unsignedBigInteger('earning_id')->comment('対応伝票 (earnings.id)');
+            $table->unsignedBigInteger('trade_id')->comment('取引ID (trades.id)');
+            $table->enum('status', ['PENDING', 'PICKING', 'SHORTAGE', 'COMPLETED'])->default('PENDING')->comment('ステータス');
+            $table->enum('task_type', ['WAVE', 'REALLOCATION'])->default('WAVE')->comment('タスク種別');
+            $table->unsignedBigInteger('picker_id')->nullable()->comment('担当ピッカー (wms_pickers.id)');
             $table->timestamps();
 
             $table->index(['wave_id', 'status']);
+            $table->index('earning_id');
+        });
+
+        // WMS Picking Item Results - ピッキング実績 (商品単位)
+        Schema::connection('sakemaru')->create('wms_picking_item_results', function (Blueprint $table) {
+            $table->id();
+            $table->unsignedBigInteger('picking_task_id')->comment('ピッキングタスクID');
+            $table->unsignedBigInteger('trade_item_id')->comment('商品明細ID (trade_items.id)');
+            $table->unsignedBigInteger('item_id')->comment('商品ID (items.id)');
+            $table->unsignedBigInteger('real_stock_id')->nullable()->comment('実在庫ID (real_stocks.id)');
+            $table->integer('planned_qty')->comment('指示数量');
+            $table->integer('picked_qty')->default(0)->comment('実績数量');
+            $table->integer('shortage_qty')->default(0)->comment('欠品数量');
+            $table->enum('status', ['PICKING', 'COMPLETED', 'SHORTAGE'])->default('PICKING')->comment('ステータス');
+            $table->unsignedBigInteger('picker_id')->nullable()->comment('ピッカー');
+            $table->timestamps();
+
+            $table->index('picking_task_id');
+            $table->index('trade_item_id');
         });
 
         // WMS Receipt Inspections - 入荷検品
-        Schema::create('wms_receipt_inspections', function (Blueprint $table) {
+        Schema::connection('sakemaru')->create('wms_receipt_inspections', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('purchase_id')->comment('仕入伝票ID (purchases.id)');
             $table->string('inspection_no')->unique()->comment('検品番号');
             $table->unsignedBigInteger('warehouse_id')->comment('倉庫ID');
             $table->enum('status', ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'])->default('PENDING')->comment('ステータス');
-            $table->unsignedBigInteger('inspected_by')->nullable()->comment('検品者ID (wms_users.id)');
+            $table->unsignedBigInteger('inspected_by')->nullable()->comment('検品者ID (wms_pickers.id)');
             $table->dateTime('inspected_at')->nullable()->comment('検品日時');
             $table->text('notes')->nullable()->comment('備考');
             $table->timestamps();
@@ -79,7 +77,7 @@ return new class extends Migration
         });
 
         // WMS Receipt Inspection Lines - 入荷検品明細
-        Schema::create('wms_receipt_inspection_lines', function (Blueprint $table) {
+        Schema::connection('sakemaru')->create('wms_receipt_inspection_lines', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('inspection_id')->comment('検品ID');
             $table->unsignedBigInteger('purchase_line_id')->comment('仕入明細ID (purchase_lines.id)');
@@ -97,12 +95,12 @@ return new class extends Migration
         });
 
         // WMS Shipment Inspections - 出荷検品
-        Schema::create('wms_shipment_inspections', function (Blueprint $table) {
+        Schema::connection('sakemaru')->create('wms_shipment_inspections', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('earning_id')->comment('売上伝票ID (earnings.id)');
             $table->unsignedBigInteger('warehouse_id')->comment('倉庫ID');
             $table->date('inspection_date')->comment('検品日');
-            $table->unsignedBigInteger('inspector_id')->nullable()->comment('検品者ID (wms_users.id)');
+            $table->unsignedBigInteger('inspector_id')->nullable()->comment('検品者ID (wms_pickers.id)');
             $table->enum('status', ['pending', 'in_progress', 'completed', 'partial'])->default('pending')->comment('ステータス');
             $table->text('notes')->nullable()->comment('備考');
             $table->timestamps();
@@ -111,7 +109,7 @@ return new class extends Migration
         });
 
         // WMS Shipment Inspection Lines - 出荷検品明細
-        Schema::create('wms_shipment_inspection_lines', function (Blueprint $table) {
+        Schema::connection('sakemaru')->create('wms_shipment_inspection_lines', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('inspection_id')->comment('検品ID');
             $table->unsignedBigInteger('earning_line_id')->comment('売上明細ID (earning_lines.id)');
@@ -131,13 +129,12 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('wms_shipment_inspection_lines');
-        Schema::dropIfExists('wms_shipment_inspections');
-        Schema::dropIfExists('wms_receipt_inspection_lines');
-        Schema::dropIfExists('wms_receipt_inspections');
-        Schema::dropIfExists('wms_picking_tasks');
-        Schema::dropIfExists('wms_wave_shipments');
-        Schema::dropIfExists('wms_waves');
-        Schema::dropIfExists('wms_users');
+        Schema::connection('sakemaru')->dropIfExists('wms_shipment_inspection_lines');
+        Schema::connection('sakemaru')->dropIfExists('wms_shipment_inspections');
+        Schema::connection('sakemaru')->dropIfExists('wms_receipt_inspection_lines');
+        Schema::connection('sakemaru')->dropIfExists('wms_receipt_inspections');
+        Schema::connection('sakemaru')->dropIfExists('wms_picking_tasks');
+        // wms_waves is dropped in 2025_10_23_040000_create_wms_waves_table.php
+        Schema::connection('sakemaru')->dropIfExists('wms_pickers');
     }
 };

@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use Archilex\AdvancedTables\Plugin\AdvancedTablesPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -29,6 +30,8 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->topNavigation() // トップナビゲーションを有効化
+            ->maxContentWidth('full')
+            ->breadcrumbs(false) // パンくずリストを無効化
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->colors([
                 'primary' => Color::Amber,
@@ -44,7 +47,6 @@ class AdminPanelProvider extends PanelProvider
                 FilamentInfoWidget::class,
             ])
             ->navigationGroups([
-                '入出荷管理',
                 '入荷',
                 '出荷',
                 '在庫',
@@ -63,6 +65,14 @@ class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            ->plugins([
+                AdvancedTablesPlugin::make()
+                    ->userViewsEnabled(false)
+//                    ->quickFiltersEnabled(false)
+
+
+                ]
+            )
             ->authMiddleware([
                 Authenticate::class,
             ]);

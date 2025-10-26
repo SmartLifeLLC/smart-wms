@@ -21,21 +21,28 @@ class ClientSetting extends CustomModel
         return $this->belongsTo(Client::class);
     }
 
+
+    /**
+     *
+     * @param bool $default_now
+     * @param int|null $client_id (client id deprecated for a whole system)
+     * @return Carbon|null
+     */
     public static function systemDate(bool $default_now = false, ?int $client_id = null): Carbon|null
     {
-        if ($client_id) {
-            $client_setting = ClientSetting::firstWhere('client_id', $client_id);
-        } else {
-            $client_setting = auth()->user()?->client?->setting;
-        }
-        if ($client_setting?->system_date) {
-            return new Carbon($client_setting->system_date);
-        }
+//        if ($client_id) {
+//            $client_setting = ClientSetting::firstWhere('client_id', $client_id);
+//        } else {
+//            $client_setting = auth()->user()?->client?->setting;
+//        }
+//        if ($client_setting?->system_date) {
+//            return new Carbon($client_setting->system_date);
+//        }
         if ($default_now) {
             return TimeZone::TOKYO->now();
         }
 
-        return ClientSetting::first()->system_date ;
+        return new Carbon(ClientSetting::first()->system_date);
 
     }
 
@@ -103,12 +110,13 @@ class ClientSetting extends CustomModel
         self::lock(false);
     }
 
-    public static function hasWms(){
-        $client_id = auth()?->user()?->client_id??null;
-        return ClientSetting::where('client_id',$client_id)->first()?->has_wms??false;
+    public static function hasWms()
+    {
+        $client_id = auth()?->user()?->client_id ?? null;
+        return ClientSetting::where('client_id', $client_id)->first()?->has_wms ?? false;
     }
 
-    public static function authSetting() : ?self
+    public static function authSetting(): ?self
     {
         $user = auth()->user();
         return $user?->client?->setting;

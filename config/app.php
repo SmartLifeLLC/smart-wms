@@ -17,6 +17,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Booze Core API Configuration
+    |--------------------------------------------------------------------------
+    |
+    | Configuration for connecting to the Booze Core API.
+    |
+    */
+
+    'core_url' => env('CORE_URL', 'https://bz-core.test'),
+    'bzcore_api_token' => env('BZCORE_API_TOKEN'),
+    'sakemaru_api_token' => env('SAKEMARU_API_TOKEN'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |
@@ -65,7 +78,7 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    'timezone' => 'ASIA/TOKYO',
 
     /*
     |--------------------------------------------------------------------------
@@ -78,11 +91,11 @@ return [
     |
     */
 
-    'locale' => env('APP_LOCALE', 'en'),
+    'locale' => env('APP_LOCALE', 'ja'),
 
-    'fallback_locale' => env('APP_FALLBACK_LOCALE', 'en'),
+    'fallback_locale' => env('APP_FALLBACK_LOCALE', 'ja'),
 
-    'faker_locale' => env('APP_FAKER_LOCALE', 'en_US'),
+    'faker_locale' => env('APP_FAKER_LOCALE', 'ja_JP'),
 
     /*
     |--------------------------------------------------------------------------

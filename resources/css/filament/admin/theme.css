@@ -1,29 +1,221 @@
 @import '../../../../vendor/filament/filament/resources/css/theme.css';
 
 @source '../../../../app/Filament/**/*';
-@source '../../../../app/Livewire/**/*';
 @source '../../../../resources/views/filament/**/*';
-@source '../../../../resources/views/livewire/**/*';
+@source '../../../../vendor/archilex/filament-filter-sets';
 
-@theme {
-    /* Compact form fields for WMS search filters */
-    --input-padding-y: 0.375rem;
-    --input-padding-x: 0.625rem;
+/* Advanced Tables Plugin Styles */
+.advanced-tables-fav-bar-theme-filament {
+    @apply bg-gray-50 text-primary-600 dark:bg-white/5 dark:text-primary-400;
 }
 
-/* Make WMS search filters more compact */
-.fi-section {
-    padding: 0.5rem !important;
+.advanced-tables-icon-select ul {
+    @apply grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 p-2;
 }
 
-.fi-section-content {
-    gap: 0.5rem !important;
+.advanced-tables-icon-select ul li {
+    @apply h-10 py-0 flex items-center justify-center cursor-pointer rounded-md border-0 ring-1 ring-gray-950/15 dark:ring-white/15 shadow-xs transition-none;
 }
 
-.fi-input, .fi-select, .fi-date-picker {
-    min-height: 2rem !important;
+.advanced-tables-filter-block div:first-of-type {
+    @apply items-end;
 }
 
-.fi-input-wrapper {
-    margin-bottom: 0 !important;
+.advanced-tables-table-loading-overlay .fi-ta-col {
+    @apply relative;
+}
+
+.advanced-tables-table-loading-overlay .fi-ta-col > * {
+    @apply opacity-0;
+}
+
+.advanced-tables-table-loading-overlay .fi-ta-col::after {
+    @apply content-[''] opacity-30 absolute mx-3 top-1/2 -translate-y-1/2 h-3 bg-gray-400 rounded-full animate-pulse;
+}
+
+.advanced-tables-summary .fi-fo-tags-input-tags-ctn {
+    @apply border-t-0;
+}
+
+.fi-ta-row:nth-child(6n+1) .fi-ta-col::after {
+    @apply w-4/5;
+}
+
+.fi-ta-row:nth-child(6n+2) .fi-ta-col::after {
+    @apply w-2/3;
+}
+
+.fi-ta-row:nth-child(6n+3) .fi-ta-col::after {
+    @apply w-5/6;
+}
+
+.fi-ta-row:nth-child(6n+4) .fi-ta-col::after {
+    @apply w-1/2;
+}
+
+.fi-ta-row:nth-child(6n+5) .fi-ta-col::after {
+    @apply w-4/5;
+}
+
+.fi-ta-row:nth-child(6n) .fi-ta-col::after {
+    @apply w-3/4;
+}
+
+.advanced-tables-advanced-columns-dropdown .fi-icon {
+    @apply text-gray-400 dark:text-gray-500;
+}
+
+.advanced-tables-advanced-columns-dropdown .fi-dropdown-item-sorted .fi-icon {
+    @apply text-gray-950 dark:text-white;
+}
+
+.advanced-tables-advanced-columns-dropdown .fi-dropdown-list-item {
+    @apply px-3;
+}
+
+.advanced-tables-color-button {
+    @apply p-0 ring-0 text-white flex flex-shrink-0 items-center justify-center rounded-full relative outline-none disabled:opacity-70 transition focus-visible:ring-2;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-xs {
+    @apply w-6 h-6;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-sm {
+    @apply w-8 h-8;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-md {
+    @apply w-10 h-10;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-lg {
+    @apply w-12 h-12;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-xl {
+    @apply w-16 h-16;
+}
+
+.advanced-tables-color-button .fi-icon {
+    @apply text-white dark:text-gray-950;
+}
+
+/* カスタムスタイル: 画面幅を最大化 */
+@layer components {
+    .fi-main {
+        @apply max-w-none;
+    }
+
+    .fi-sidebar + .fi-main {
+        @apply max-w-none;
+    }
+
+    .fi-topbar + .fi-main {
+        @apply max-w-none;
+    }
+
+    /* ヘッダーのフォントサイズと余白を調整 */
+    .fi-header-heading {
+        @apply text-xl font-semibold;
+    }
+
+    .fi-header {
+        @apply pt-2 my-0 ;
+    }
+
+    .fi-page-main {
+        @apply py-0 my-0 -mt-2;
+    }
+    /* ページヘッダーの上下余白を削減 */
+    .fi-page-header-main-ctn {
+        @apply py-0 my-0;
+        @apply gap-0;
+
+    }
+
+    .fi-page-header {
+        @apply py-0 my-0;
+
+    }
+    /* テーブル行の高さを調整 */
+    .fi-ta-row {
+        height: 37px !important;
+
+    }
+
+    .fi-ta-cell {
+
+        height: 37px !important;
+        padding: 3px 5px 3px!important;
+    }
+
+    /* セレクションセル（チェックボックス）のpaddingを削減 */
+    .fi-ta-selection-cell {
+        padding: 3px 5px 3px!important;
+        height: 37px !important;
+    }
+
+    /* テーブルテキスト要素のpaddingを削減 */
+    .fi-ta-text,
+    .fi-ta-text-item,
+    .fi-ta-text-has-badges {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    .fi-size-sm {
+        @apply py-0 my-0;
+        height: auto !important;
+        min-height: auto !important;
+        line-height: 1.2 !important;
+    }
+
+    .fi-ta-text-item.fi-size-sm {
+        padding: 0 !important;
+    }
+
+    /* ページタイトルのフォントサイズを調整 */
+    .fi-section-header-heading {
+        @apply text-base font-medium;
+
+    }
+
+    .fi-section-header {
+        @apply py-0 my-0;
+    }
+
+    /* テーブルヘッダーのフォントサイズと余白を調整 */
+    .fi-ta-header-heading {
+        @apply text-base font-medium;
+    }
+
+    .fi-ta-header {
+        @apply py-0 my-0;
+    }
+
+    /* ページ全体の上部余白を調整 */
+    .fi-page {
+        @apply pt-0;
+    }
+
+    /* テーブルとヘッダーの間隔を削減 */
+    .fi-ta {
+        @apply mt-0;
+    }
+
+    /* セクション間の余白を削減 */
+    .fi-section {
+        @apply py-0 my-0;
+    }
+
+    /* ページコンテンツの余白を調整 */
+    .fi-page-content {
+        @apply py-2;
+    }
+
+    /* ページヘッダーとコンテンツの間隔を削減 */
+    .fi-page > .fi-page-content {
+        @apply mt-0;
+    }
 }
