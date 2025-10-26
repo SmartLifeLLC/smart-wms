@@ -18,7 +18,7 @@ class WmsStockAvailable extends WmsModel
 
     protected $casts = [
         'expiration_date' => 'date',
-        'received_at' => 'datetime',
+        'created_at' => 'datetime',
         'unit_cost' => 'decimal:4',
         'current_quantity' => 'integer',
         'available_for_wms' => 'integer',
@@ -66,7 +66,7 @@ class WmsStockAvailable extends WmsModel
         return $query
             ->orderByRaw('CASE WHEN expiration_date IS NULL THEN 1 ELSE 0 END')
             ->orderBy('expiration_date', 'asc')
-            ->orderBy('received_at', 'asc')
+            ->orderBy('created_at', 'asc')
             ->orderBy('real_stock_id', 'asc');
     }
 }
