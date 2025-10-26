@@ -139,12 +139,12 @@ class WmsPickingTasksTable
                     ->visible(fn ($record) => in_array($record->status, ['PENDING', 'PICKING'])),
             ], position: RecordActionsPosition::BeforeColumns)
             ->defaultSort('created_at', 'desc')
-            ->bulkActions([
+            ->toolbarActions([
                 BulkAction::make('assignPicker')
                     ->label('担当者を割り当てる')
                     ->icon('heroicon-o-user-plus')
                     ->color('primary')
-                    ->form([
+                    ->schema([
                         Select::make('picker_id')
                             ->label('ピッカー')
                             ->required()
@@ -211,6 +211,64 @@ class WmsPickingTasksTable
                     })
                     ->deselectRecordsAfterCompletion()
                     ->requiresConfirmation(),
+
+                BulkAction::make('forceShipBulk')
+                    ->label('一括強制出荷（管理者）')
+                    ->icon('heroicon-o-truck')
+                    ->color('warning')
+                    ->action(function (Collection $records) {
+                        $completedCount = 0;
+                        $totalItems = 0;
+
+                        DB::connection('sakemaru')->transaction(function () use ($records, &$completedCount, &$totalItems) {
+                            foreach ($records as $task) {
+                                // 未完了のタスクのみ処理
+                                if ($task->status !== 'COMPLETED') {
+                                    // すべての商品のピッキング数を予定数に自動設定
+                                    $items = $task->pickingItemResults;
+
+                                    foreach ($items as $item) {
+                                        $item->update([
+                                            'picked_qty' => $item->planned_qty,
+                                            'shortage_qty' => 0,
+                                            'status' => 'COMPLETED',
+                                            'picked_at' => now(),
+                                        ]);
+                                        $totalItems++;
+                                    }
+
+                                    // タスクを完了
+                                    $task->update([
+                                        'status' => 'COMPLETED',
+                                        'completed_at' => now(),
+                                    ]);
+
+                                    // 伝票のピッキングステータスを更新
+                                    if ($task->earning) {
+                                        DB::connection('sakemaru')
+                                            ->table('earnings')
+                                            ->where('id', $task->earning_id)
+                                            ->update([
+                                                'picking_status' => 'COMPLETED',
+                                                'updated_at' => now(),
+                                            ]);
+                                    }
+
+                                    $completedCount++;
+                                }
+                            }
+                        });
+
+                        Notification::make()
+                            ->title('一括強制出荷しました')
+                            ->body("{$completedCount}件のタスク（{$totalItems}商品）を強制出荷しました")
+                            ->success()
+                            ->send();
+                    })
+                    ->deselectRecordsAfterCompletion()
+                    ->requiresConfirmation()
+                    ->modalHeading('一括強制出荷確認')
+                    ->modalDescription('選択したすべてのタスクを強制出荷します。各タスクのすべての商品のピッキング数が予定数に自動設定され、出荷可能状態になります。この操作は取り消せません。'),
             ]);
     }
 }

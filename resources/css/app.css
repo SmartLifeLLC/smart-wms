@@ -4,8 +4,120 @@
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
 @source '../**/*.js';
+@source '../../vendor/archilex/filament-filter-sets';
 
 @theme {
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+
+    /* Primary color palette (Amber - matching Filament panel config) */
+    --color-primary-50: #fffbeb;
+    --color-primary-100: #fef3c7;
+    --color-primary-200: #fde68a;
+    --color-primary-300: #fcd34d;
+    --color-primary-400: #fbbf24;
+    --color-primary-500: #f59e0b;
+    --color-primary-600: #d97706;
+    --color-primary-700: #b45309;
+    --color-primary-800: #92400e;
+    --color-primary-900: #78350f;
+    --color-primary-950: #451a03;
 }
+
+/* Advanced Tables Plugin Styles */
+.advanced-tables-fav-bar-theme-filament {
+    @apply bg-gray-50 text-primary-600 dark:bg-white/5 dark:text-primary-400;
+}
+
+.advanced-tables-icon-select ul {
+    @apply grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 p-2;
+}
+
+.advanced-tables-icon-select ul li {
+    @apply h-10 py-0 flex items-center justify-center cursor-pointer rounded-md border-0 ring-1 ring-gray-950/15 dark:ring-white/15 shadow-xs transition-none;
+}
+
+.advanced-tables-filter-block div:first-of-type {
+    @apply items-end;
+}
+
+.advanced-tables-table-loading-overlay .fi-ta-col {
+    @apply relative;
+}
+
+.advanced-tables-table-loading-overlay .fi-ta-col > * {
+    @apply opacity-0;
+}
+
+.advanced-tables-table-loading-overlay .fi-ta-col::after {
+    @apply content-[''] opacity-30 absolute mx-3 top-1/2 -translate-y-1/2 h-3 bg-gray-400 rounded-full animate-pulse;
+}
+
+.advanced-tables-summary .fi-fo-tags-input-tags-ctn {
+    @apply border-t-0;
+}
+
+.fi-ta-row:nth-child(6n+1) .fi-ta-col::after {
+    @apply w-4/5;
+}
+
+.fi-ta-row:nth-child(6n+2) .fi-ta-col::after {
+    @apply w-2/3;
+}
+
+.fi-ta-row:nth-child(6n+3) .fi-ta-col::after {
+    @apply w-5/6;
+}
+
+.fi-ta-row:nth-child(6n+4) .fi-ta-col::after {
+    @apply w-1/2;
+}
+
+.fi-ta-row:nth-child(6n+5) .fi-ta-col::after {
+    @apply w-4/5;
+}
+
+.fi-ta-row:nth-child(6n) .fi-ta-col::after {
+    @apply w-3/4;
+}
+
+.advanced-tables-advanced-columns-dropdown .fi-icon {
+    @apply text-gray-400 dark:text-gray-500;
+}
+
+.advanced-tables-advanced-columns-dropdown .fi-dropdown-item-sorted .fi-icon {
+    @apply text-gray-950 dark:text-white;
+}
+
+.advanced-tables-advanced-columns-dropdown .fi-dropdown-list-item {
+    @apply px-3;
+}
+
+.advanced-tables-color-button {
+    @apply p-0 ring-0 text-white flex flex-shrink-0 items-center justify-center rounded-full relative outline-none disabled:opacity-70 transition focus-visible:ring-2;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-xs {
+    @apply w-6 h-6;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-sm {
+    @apply w-8 h-8;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-md {
+    @apply w-10 h-10;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-lg {
+    @apply w-12 h-12;
+}
+
+.advanced-tables-color-button.advanced-tables-color-button-size-xl {
+    @apply w-16 h-16;
+}
+
+.advanced-tables-color-button .fi-icon {
+    @apply text-white dark:text-gray-950;
+}
+

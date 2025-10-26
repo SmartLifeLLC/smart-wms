@@ -61,6 +61,18 @@ class ExecuteWmsPickingTask extends Page implements HasForms
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('force_ship')
+                ->label('強制出荷（管理者）')
+                ->color('warning')
+                ->icon('heroicon-o-truck')
+                ->requiresConfirmation()
+                ->modalHeading('強制出荷確認')
+                ->modalDescription('すべての商品のピッキング数を予定数に自動設定し、出荷可能状態にします。テスト用・緊急用の機能です。')
+                ->action(function () {
+                    $this->forceShipTask();
+                })
+                ->visible(fn () => $this->record->status !== 'COMPLETED'),
+
             Action::make('complete')
                 ->label('ピッキング完了')
                 ->color('success')
@@ -164,6 +176,50 @@ class ExecuteWmsPickingTask extends Page implements HasForms
                     'status' => $item->status,
                 ];
             })->toArray();
+        });
+    }
+
+    public function forceShipTask(): void
+    {
+        DB::connection('sakemaru')->transaction(function () {
+            // すべての商品のピッキング数を予定数に自動設定
+            $items = $this->record->pickingItemResults;
+            $updatedCount = 0;
+
+            foreach ($items as $item) {
+                $item->update([
+                    'picked_qty' => $item->planned_qty,
+                    'shortage_qty' => 0,
+                    'status' => 'COMPLETED',
+                    'picked_at' => now(),
+                ]);
+                $updatedCount++;
+            }
+
+            // タスクを完了
+            $this->record->update([
+                'status' => 'COMPLETED',
+                'completed_at' => now(),
+            ]);
+
+            // 伝票のピッキングステータスを更新
+            if ($this->record->earning) {
+                DB::connection('sakemaru')
+                    ->table('earnings')
+                    ->where('id', $this->record->earning_id)
+                    ->update([
+                        'picking_status' => 'COMPLETED',
+                        'updated_at' => now(),
+                    ]);
+            }
+
+            Notification::make()
+                ->title('強制出荷しました')
+                ->body("{$updatedCount}件の商品を自動完了し、出荷可能状態にしました")
+                ->success()
+                ->send();
+
+            $this->redirect(WmsPickingTaskResource::getUrl('index'));
         });
     }
 

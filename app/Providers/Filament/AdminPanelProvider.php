@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use Archilex\AdvancedTables\Plugin\AdvancedTablesPlugin;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -64,6 +65,14 @@ class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            ->plugins([
+                AdvancedTablesPlugin::make()
+                    ->userViewsEnabled(false)
+//                    ->quickFiltersEnabled(false)
+
+
+                ]
+            )
             ->authMiddleware([
                 Authenticate::class,
             ]);
