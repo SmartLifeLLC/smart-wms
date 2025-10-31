@@ -133,6 +133,7 @@ return new class extends Migration
         Schema::connection('sakemaru')->dropIfExists('wms_shipment_inspections');
         Schema::connection('sakemaru')->dropIfExists('wms_receipt_inspection_lines');
         Schema::connection('sakemaru')->dropIfExists('wms_receipt_inspections');
+        Schema::connection('sakemaru')->dropIfExists('wms_picking_item_results');
         Schema::connection('sakemaru')->dropIfExists('wms_picking_tasks');
         // wms_waves is dropped in 2025_10_23_040000_create_wms_waves_table.php
         Schema::connection('sakemaru')->dropIfExists('wms_pickers');
