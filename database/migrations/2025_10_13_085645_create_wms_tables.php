@@ -15,21 +15,17 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // WMS Real Stocks - WMS-specific stock tracking (separate from core real_stocks)
-        Schema::connection('sakemaru')->create('wms_real_stocks', function (Blueprint $table) {
+        Schema::create('wms_real_stocks', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('real_stock_id')->comment('Link to core real_stocks.id');
-            $table->integer('wms_reserved_qty')->nullable(false)->default(0)->comment('WMS引当拘束（ピッキング未開始）');
-            $table->integer('wms_picking_qty')->nullable(false)->default(0)->comment('WMSピッキング進行中拘束');
-            $table->integer('wms_lock_version')->nullable(false)->default(0)->comment('楽観ロック用バージョン');
+            $table->unsignedBigInteger('real_stock_id')->index();
+            $table->integer('reserved_quantity')->nullable(false)->default(0)->comment('WMS引当拘束（ピッキング未開始）');
+            $table->integer('picking_quantity')->nullable(false)->default(0)->comment('WMSピッキング進行中拘束');
+            $table->integer('lock_version')->nullable(false)->default(0)->comment('楽観ロック用バージョン');
             $table->timestamps();
-
-            $table->unique('real_stock_id');
-            $table->index('wms_lock_version');
         });
 
         // WMS Reservations - Stock allocation tracking
-        Schema::connection('sakemaru')->create('wms_reservations', function (Blueprint $table) {
+        Schema::create('wms_reservations', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('client_id');
             $table->unsignedBigInteger('warehouse_id');
@@ -54,7 +50,7 @@ return new class extends Migration
         });
 
         // WMS Idempotency Keys - Prevent duplicate operations
-        Schema::connection('sakemaru')->create('wms_idempotency_keys', function (Blueprint $table) {
+        Schema::create('wms_idempotency_keys', function (Blueprint $table) {
             $table->id();
             $table->string('scope', 64);
             $table->char('key_hash', 64);
@@ -64,13 +60,14 @@ return new class extends Migration
         });
 
         // WMS Stock Allocations
-        Schema::connection('sakemaru')->create('wms_stock_allocations', function (Blueprint $table) {
+        Schema::create('wms_stock_allocations', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('client_id');
             $table->unsignedBigInteger('warehouse_id');
             $table->string('name');
             $table->timestamps();
         });
+
 
         // Create view for available stock with WMS tracking
         DB::connection('sakemaru')->statement("
@@ -94,8 +91,7 @@ return new class extends Migration
                 LEFT JOIN wms_real_stocks wrs ON rs.id = wrs.real_stock_id
             ");
 
-        // Note: clients, items, locations tables are managed by core system (sakemaru)
-        // These tables should already exist in the database
+
     }
 
     /**
@@ -103,15 +99,16 @@ return new class extends Migration
      */
     public function down(): void
     {
+        Schema::dropIfExists('wms_real_stocks');
         // Drop view
         DB::connection('sakemaru')->statement('DROP VIEW IF EXISTS wms_v_stock_available');
 
-        // Drop WMS tables
-        Schema::connection('sakemaru')->dropIfExists('wms_stock_allocations');
-        Schema::connection('sakemaru')->dropIfExists('wms_idempotency_keys');
-        Schema::connection('sakemaru')->dropIfExists('wms_reservations');
-        Schema::connection('sakemaru')->dropIfExists('wms_real_stocks');
+        // Drop WMS tables only
+        Schema::dropIfExists('wms_stock_allocations');
+        Schema::dropIfExists('wms_idempotency_keys');
+        Schema::dropIfExists('wms_reservations');
+        Schema::dropIfExists('wms_real_stocks');
 
-        // Note: clients, items, locations, real_stocks are NOT dropped as they are managed by core system
+        // Note: clients, items, locations are NOT dropped as they are managed by core system
     }
 };
