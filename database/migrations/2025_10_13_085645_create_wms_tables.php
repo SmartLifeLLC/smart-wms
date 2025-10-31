@@ -82,10 +82,10 @@ return new class extends Migration
                     rs.purchase_id,
                     rs.price AS unit_cost,
                     rs.current_quantity,
-                    GREATEST(rs.available_quantity - COALESCE(wrs.wms_reserved_qty, 0) - COALESCE(wrs.wms_picking_qty, 0), 0) AS available_for_wms,
-                    COALESCE(wrs.wms_reserved_qty, 0) AS wms_reserved_qty,
-                    COALESCE(wrs.wms_picking_qty, 0) AS wms_picking_qty,
-                    COALESCE(wrs.wms_lock_version, 0) AS wms_lock_version,
+                    GREATEST(rs.available_quantity - COALESCE(wrs.reserved_quantity, 0) - COALESCE(wrs.picking_quantity, 0), 0) AS available_for_wms,
+                    COALESCE(wrs.reserved_quantity, 0) AS wms_reserved_qty,
+                    COALESCE(wrs.picking_quantity, 0) AS wms_picking_qty,
+                    COALESCE(wrs.lock_version, 0) AS wms_lock_version,
                     rs.created_at
                 FROM real_stocks rs
                 LEFT JOIN wms_real_stocks wrs ON rs.id = wrs.real_stock_id
