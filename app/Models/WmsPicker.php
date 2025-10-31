@@ -6,9 +6,12 @@ use App\Models\Sakemaru\Warehouse;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Laravel\Sanctum\HasApiTokens;
 
 class WmsPicker extends Model
 {
+    use HasApiTokens;
+
     protected $connection = 'sakemaru';
 
     protected $table = 'wms_pickers';

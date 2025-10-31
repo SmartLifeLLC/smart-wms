@@ -65,6 +65,11 @@ return [
             'model' => env('AUTH_MODEL', App\Models\Sakemaru\User::class),
         ],
 
+        'wms_pickers' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\WmsPicker::class,
+        ],
+
         // 'users' => [
         //     'driver' => 'database',
         //     'table' => 'users',
