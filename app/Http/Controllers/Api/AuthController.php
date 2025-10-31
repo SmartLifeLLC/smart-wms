@@ -18,6 +18,7 @@ class AuthController extends ApiController
      *     tags={"Authentication"},
      *     summary="Login to WMS",
      *     description="Authenticate picker with code and password, returns API token",
+     *     security={{"apiKey":{}}},
      *     @OA\RequestBody(
      *         required=true,
      *         @OA\MediaType(
@@ -135,7 +136,7 @@ class AuthController extends ApiController
      *     tags={"Authentication"},
      *     summary="Logout from WMS",
      *     description="Revoke current API token",
-     *     security={{"sanctum":{}}},
+     *     security={{"apiKey":{},"sanctum":{}}},
      *     @OA\Response(
      *         response=200,
      *         description="Successfully logged out",
@@ -180,7 +181,7 @@ class AuthController extends ApiController
      *     tags={"Authentication"},
      *     summary="Get current picker info",
      *     description="Returns information about the authenticated picker",
-     *     security={{"sanctum":{}}},
+     *     security={{"apiKey":{},"sanctum":{}}},
      *     @OA\Response(
      *         response=200,
      *         description="Picker information",

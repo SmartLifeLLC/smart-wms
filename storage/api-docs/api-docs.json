@@ -188,7 +188,12 @@
                             }
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "apiKey": []
+                    }
+                ]
             }
         },
         "/api/auth/logout": {
@@ -268,6 +273,7 @@
                 },
                 "security": [
                     {
+                        "apiKey": [],
                         "sanctum": []
                     }
                 ]
@@ -362,6 +368,7 @@
                 },
                 "security": [
                     {
+                        "apiKey": [],
                         "sanctum": []
                     }
                 ]
@@ -370,10 +377,17 @@
     },
     "components": {
         "securitySchemes": {
+            "apiKey": {
+                "type": "apiKey",
+                "description": "API Key for WMS API access (required for all endpoints)",
+                "name": "X-API-Key",
+                "in": "header"
+            },
             "sanctum": {
                 "type": "http",
+                "scheme": "bearer",
                 "bearerFormat": "token",
-                "scheme": "bearer"
+                "description": "Bearer token from /auth/login endpoint"
             }
         }
     },
