@@ -33,6 +33,13 @@ return new class extends Migration
      */
     public function down(): void
     {
+        // Update existing PARTIAL and SHORTAGE records to RESERVED before modifying enum
+        DB::connection('sakemaru')->statement("
+            UPDATE wms_reservations
+            SET status = 'RESERVED'
+            WHERE status IN ('PARTIAL', 'SHORTAGE')
+        ");
+
         // Revert status enum to original values
         DB::connection('sakemaru')->statement("
             ALTER TABLE wms_reservations
