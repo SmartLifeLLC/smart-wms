@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ViewWmsInventoryCountLogs extends Page
 {
@@ -162,6 +163,46 @@ class ViewWmsInventoryCountLogs extends Page
     public function nextLogPage(): void
     {
         $this->goToLogPage($this->logPage + 1);
+    }
+
+    public function downloadCsv(): StreamedResponse
+    {
+        $query = $this->baseLogQuery();
+        $this->applyFilters($query);
+
+        $query
+            ->orderByDesc('wms_inventory_count_item_logs.created_at')
+            ->orderByDesc('wms_inventory_count_item_logs.id');
+
+        $record = $this->record;
+        $filename = '棚卸作業ログ_'.preg_replace('/[^\p{L}\p{N}_-]+/u', '_', (string) ($record->count_no ?? 'unknown')).'_'.now()->format('YmdHis').'.csv';
+
+        return response()->streamDownload(function () use ($query, $record): void {
+            $handle = fopen('php://output', 'w');
+
+            if ($handle === false) {
+                return;
+            }
+
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, ['入力時刻', '商品名', '商品コード', '倉庫コード', '作業者']);
+
+            $query->chunk(1000, function ($logs) use ($handle, $record): void {
+                foreach ($logs as $log) {
+                    $item = $log->countItem;
+
+                    fputcsv($handle, [
+                        $log->created_at?->format('Y/m/d H:i:s') ?? '',
+                        $item?->item_name ?? '',
+                        $item?->item_code ?? '',
+                        $record->warehouse_code ?? '',
+                        $log->actor_name,
+                    ]);
+                }
+            });
+
+            fclose($handle);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
     public function formatQuantity(mixed $quantity): string

@@ -730,6 +730,89 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame([$visibleItem->id], collect($page->logs()->items())->pluck('inventory_count_item_id')->all());
     }
 
+    public function test_inventory_count_logs_can_be_downloaded_as_filtered_csv(): void
+    {
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count-logs.blade.php'));
+
+        $this->assertStringContainsString('wire:click="downloadCsv"', $blade);
+        $this->assertStringContainsString('CSVダウンロード', $blade);
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'CSV-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 10,
+            'warehouse_code' => '10',
+            'warehouse_name' => 'ログCSVテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        $targetItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999903,
+            'item_code' => 'CSV001',
+            'item_name' => 'CSV出力対象商品',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'first_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        $excludedItem = WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => 999904,
+            'item_code' => 'CSV999',
+            'item_name' => 'CSVフィルタ対象外商品',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 3,
+            'first_count_quantity' => 4,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItemLog::create([
+            'inventory_count_item_id' => $targetItem->id,
+            'device_id' => 'WEB',
+            'user_id' => null,
+            'count_round' => 1,
+            'old_quantity' => 1,
+            'new_quantity' => 4,
+            'request_uuid' => (string) Str::uuid(),
+            'created_at' => '2026-09-07 10:20:30',
+        ]);
+
+        WmsInventoryCountItemLog::create([
+            'inventory_count_item_id' => $excludedItem->id,
+            'device_id' => 'WEB',
+            'user_id' => null,
+            'count_round' => 1,
+            'old_quantity' => 1,
+            'new_quantity' => 4,
+            'request_uuid' => (string) Str::uuid(),
+            'created_at' => '2026-09-07 10:21:30',
+        ]);
+
+        $page = new ViewWmsInventoryCountLogs;
+        $page->record = $inventoryCount;
+        $page->itemCodeFilter = 'CSV001';
+
+        $response = $page->downloadCsv();
+
+        ob_start();
+        $response->sendContent();
+        $content = (string) ob_get_clean();
+
+        $this->assertSame('text/csv; charset=UTF-8', $response->headers->get('Content-Type'));
+        $this->assertSame("\xEF\xBB\xBF", substr($content, 0, 3));
+
+        $lines = array_values(array_filter(explode("\n", substr($content, 3)), fn (string $line): bool => trim($line) !== ''));
+
+        $this->assertCount(2, $lines);
+        $this->assertSame(['入力時刻', '商品名', '商品コード', '倉庫コード', '作業者'], str_getcsv($lines[0]));
+        $this->assertSame(['2026/09/07 10:20:30', 'CSV出力対象商品', 'CSV001', '10', 'WEB'], str_getcsv($lines[1]));
+        $this->assertStringNotContainsString('CSV999', $content);
+    }
+
     private function createItemInMajorCategory(int $majorCategoryCode, bool $managedStock = true): int
     {
         $majorCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
