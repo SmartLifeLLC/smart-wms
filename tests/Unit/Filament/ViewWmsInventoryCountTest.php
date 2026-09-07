@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
 
 class ViewWmsInventoryCountTest extends TestCase
@@ -730,12 +731,12 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame([$visibleItem->id], collect($page->logs()->items())->pluck('inventory_count_item_id')->all());
     }
 
-    public function test_inventory_count_logs_can_be_downloaded_as_filtered_csv(): void
+    public function test_inventory_count_logs_can_be_downloaded_as_filtered_excel(): void
     {
         $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count-logs.blade.php'));
 
-        $this->assertStringContainsString('wire:click="downloadCsv"', $blade);
-        $this->assertStringContainsString('CSVダウンロード', $blade);
+        $this->assertStringContainsString('wire:click="downloadExcel"', $blade);
+        $this->assertStringContainsString('Excelダウンロード', $blade);
 
         $inventoryCount = WmsInventoryCount::create([
             'count_no' => 'CSV-'.Str::upper(Str::random(12)),
@@ -796,21 +797,34 @@ class ViewWmsInventoryCountTest extends TestCase
         $page->record = $inventoryCount;
         $page->itemCodeFilter = 'CSV001';
 
-        $response = $page->downloadCsv();
+        $response = $page->downloadExcel();
 
         ob_start();
         $response->sendContent();
         $content = (string) ob_get_clean();
 
-        $this->assertSame('text/csv; charset=UTF-8', $response->headers->get('Content-Type'));
-        $this->assertSame("\xEF\xBB\xBF", substr($content, 0, 3));
+        $this->assertSame('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $response->headers->get('Content-Type'));
 
-        $lines = array_values(array_filter(explode("\n", substr($content, 3)), fn (string $line): bool => trim($line) !== ''));
+        $tempPath = tempnam(sys_get_temp_dir(), 'inventory-count-logs-test-');
+        file_put_contents($tempPath, $content);
 
-        $this->assertCount(2, $lines);
-        $this->assertSame(['入力時刻', '商品名', '商品コード', '倉庫コード', '入力数量', '作業者'], str_getcsv($lines[0]));
-        $this->assertSame(['2026/09/07 10:20:30', 'CSV出力対象商品', 'CSV001', '10', '4', 'WEB'], str_getcsv($lines[1]));
-        $this->assertStringNotContainsString('CSV999', $content);
+        try {
+            $sheet = IOFactory::load($tempPath)->getActiveSheet();
+
+            $this->assertSame('作業ログ', $sheet->getTitle());
+            $this->assertSame(['入力時刻', '商品名', '商品コード', '倉庫コード', '入力数量', '作業者'], $sheet->rangeToArray('A1:F1')[0]);
+            $this->assertSame('2026/09/07 10:20:30', $sheet->getCell('A2')->getValue());
+            $this->assertSame('CSV出力対象商品', $sheet->getCell('B2')->getValue());
+            $this->assertSame('CSV001', $sheet->getCell('C2')->getValue());
+            $this->assertSame('10', $sheet->getCell('D2')->getValue());
+            $this->assertSame(4.0, (float) $sheet->getCell('E2')->getValue());
+            $this->assertSame('WEB', $sheet->getCell('F2')->getValue());
+            $this->assertSame('', (string) $sheet->getCell('A3')->getValue());
+        } finally {
+            if (is_file($tempPath)) {
+                unlink($tempPath);
+            }
+        }
     }
 
     private function createItemInMajorCategory(int $majorCategoryCode, bool $managedStock = true): int

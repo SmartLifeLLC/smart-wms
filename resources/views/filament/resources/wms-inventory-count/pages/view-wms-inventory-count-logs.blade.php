@@ -36,14 +36,14 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <button type="button"
-                        wire:click="downloadCsv"
+                        wire:click="downloadExcel"
                         wire:loading.attr="disabled"
-                        wire:target="downloadCsv"
+                        wire:target="downloadExcel"
                         class="inline-flex h-8 items-center gap-1 rounded-md border border-slate-500 px-2 text-xs font-semibold text-slate-100 hover:bg-slate-700 disabled:cursor-wait disabled:opacity-70">
-                        <x-filament::icon wire:loading.remove wire:target="downloadCsv" icon="heroicon-m-arrow-down-tray" class="h-4 w-4" />
-                        <span wire:loading wire:target="downloadCsv" class="h-4 w-4 animate-spin rounded-full border-2 border-slate-400 border-t-white"></span>
-                        <span wire:loading.remove wire:target="downloadCsv">CSVダウンロード</span>
-                        <span wire:loading wire:target="downloadCsv">出力中</span>
+                        <x-filament::icon wire:loading.remove wire:target="downloadExcel" icon="heroicon-m-arrow-down-tray" class="h-4 w-4" />
+                        <span wire:loading wire:target="downloadExcel" class="h-4 w-4 animate-spin rounded-full border-2 border-slate-400 border-t-white"></span>
+                        <span wire:loading.remove wire:target="downloadExcel">Excelダウンロード</span>
+                        <span wire:loading wire:target="downloadExcel">出力中</span>
                     </button>
                     <a href="{{ \App\Filament\Resources\WmsInventoryCountResource::getUrl('view', ['record' => $record]) }}"
                         class="inline-flex h-8 items-center gap-1 rounded-md border border-slate-500 px-2 text-xs font-semibold text-slate-100 hover:bg-slate-700">
