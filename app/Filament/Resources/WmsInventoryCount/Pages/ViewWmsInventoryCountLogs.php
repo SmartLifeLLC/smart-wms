@@ -185,7 +185,7 @@ class ViewWmsInventoryCountLogs extends Page
             }
 
             fwrite($handle, "\xEF\xBB\xBF");
-            fputcsv($handle, ['入力時刻', '商品名', '商品コード', '倉庫コード', '作業者']);
+            fputcsv($handle, ['入力時刻', '商品名', '商品コード', '倉庫コード', '入力数量', '作業者']);
 
             $query->chunk(1000, function ($logs) use ($handle, $record): void {
                 foreach ($logs as $log) {
@@ -196,6 +196,7 @@ class ViewWmsInventoryCountLogs extends Page
                         $item?->item_name ?? '',
                         $item?->item_code ?? '',
                         $record->warehouse_code ?? '',
+                        $this->formatQuantity($log->new_quantity),
                         $log->actor_name,
                     ]);
                 }
