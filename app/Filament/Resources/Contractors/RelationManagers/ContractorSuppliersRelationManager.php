@@ -30,15 +30,26 @@ class ContractorSuppliersRelationManager extends RelationManager
             ->components([
                 Select::make('supplier_id')
                     ->label('仕入先')
-                    ->options(function () {
-                        $existingSupplierIds = WmsContractorSupplier::where('contractor_id', $this->getOwnerRecord()->id)
-                            ->pluck('supplier_id')
-                            ->toArray();
+                    ->options(function (?WmsContractorSupplier $record): array {
+                        $existingSupplierIds = WmsContractorSupplier::query()
+                            ->select('supplier_id')
+                            ->where('contractor_id', $this->getOwnerRecord()->id)
+                            ->when(
+                                $record,
+                                fn ($query) => $query->where('id', '!=', $record->getKey()),
+                            );
 
-                        return Supplier::with('partner')
+                        return Supplier::query()
+                            ->with('partner')
+                            ->where('client_id', $this->getOwnerRecord()->client_id)
+                            ->whereHas('partner')
                             ->whereNotIn('id', $existingSupplierIds)
                             ->get()
-                            ->mapWithKeys(fn ($s) => [$s->id => "[{$s->partner?->code}] {$s->partner?->name}"]);
+                            ->sortBy(fn (Supplier $supplier) => (int) $supplier->partner?->code)
+                            ->mapWithKeys(fn (Supplier $supplier) => [
+                                $supplier->id => "[{$supplier->partner?->code}] {$supplier->partner?->name}",
+                            ])
+                            ->all();
                     })
                     ->searchable()
                     ->required()

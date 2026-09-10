@@ -26,7 +26,11 @@ class ContractorsTable
             ->striped()
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
-            ->modifyQueryUsing(fn (Builder $query) => $query->with(['wmsSetting.transmissionContractor']))
+            ->modifyQueryUsing(fn (Builder $query) => $query->with([
+                'supplier.partner',
+                'contractorSuppliers.supplier.partner',
+                'wmsSetting.transmissionContractor',
+            ]))
             ->columns([
                 TextColumn::make('code')
                     ->label('コード')
@@ -44,10 +48,35 @@ class ContractorsTable
                     ->sortable()
                     ->toggleable(),
 
-                TextColumn::make('supplier.partner.name')
-                    ->label('仕入先')
+                TextColumn::make('contractorSuppliers.supplier.partner.code')
+                    ->label('仕入先CD')
+                    ->searchable()
+                    ->listWithLineBreaks()
+                    ->distinctList()
+                    ->limitList(3)
+                    ->expandableLimitedList()
+                    ->placeholder('-'),
+
+                TextColumn::make('contractorSuppliers.supplier.partner.name')
+                    ->label('仕入先名')
+                    ->searchable()
+                    ->listWithLineBreaks()
+                    ->distinctList()
+                    ->limitList(3)
+                    ->expandableLimitedList()
+                    ->placeholder('-'),
+
+                TextColumn::make('supplier.partner.code')
+                    ->label('デフォルト仕入先CD')
+                    ->searchable()
                     ->sortable()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('supplier.partner.name')
+                    ->label('デフォルト仕入先名')
+                    ->searchable()
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('tel')
                     ->label('電話番号')
