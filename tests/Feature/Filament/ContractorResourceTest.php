@@ -152,6 +152,77 @@ class ContractorResourceTest extends TestCase
             );
     }
 
+    public function test_new_supplier_mapping_is_automatically_set_as_default(): void
+    {
+        $clientId = (int) $this->user->client_id;
+        $contractor = $this->createContractor($clientId, random_int(700000000, 799999999));
+        $oldSupplierId = $this->createSupplier($clientId, random_int(800000000, 819999999), '旧デフォルト仕入先'.uniqid());
+        $newSupplierId = $this->createSupplier($clientId, random_int(820000000, 839999999), '新規デフォルト仕入先'.uniqid());
+
+        WmsContractorSupplier::create([
+            'contractor_id' => $contractor->id,
+            'supplier_id' => $oldSupplierId,
+        ]);
+        $contractor->update(['supplier_id' => $oldSupplierId]);
+
+        Livewire::actingAs($this->user)
+            ->test(ContractorSuppliersRelationManager::class, [
+                'ownerRecord' => $contractor,
+                'pageClass' => EditContractor::class,
+            ])
+            ->callTableAction('create', data: [
+                'supplier_id' => $newSupplierId,
+                'memo' => '新規登録時にデフォルトへ切替',
+            ]);
+
+        $this->assertDatabaseHas('wms_contractor_suppliers', [
+            'contractor_id' => $contractor->id,
+            'supplier_id' => $newSupplierId,
+            'memo' => '新規登録時にデフォルトへ切替',
+        ], 'sakemaru');
+        $this->assertSame($newSupplierId, (int) $contractor->refresh()->supplier_id);
+    }
+
+    public function test_default_supplier_toggle_can_switch_on_and_off(): void
+    {
+        $clientId = (int) $this->user->client_id;
+        $contractor = $this->createContractor($clientId, random_int(700000000, 799999999));
+        $firstSupplierId = $this->createSupplier($clientId, random_int(800000000, 819999999), '第一仕入先'.uniqid());
+        $secondSupplierId = $this->createSupplier($clientId, random_int(820000000, 839999999), '第二仕入先'.uniqid());
+        $firstMapping = WmsContractorSupplier::create([
+            'contractor_id' => $contractor->id,
+            'supplier_id' => $firstSupplierId,
+        ]);
+        $secondMapping = WmsContractorSupplier::create([
+            'contractor_id' => $contractor->id,
+            'supplier_id' => $secondSupplierId,
+        ]);
+        $contractor->update(['supplier_id' => $firstSupplierId]);
+
+        $component = Livewire::actingAs($this->user)
+            ->test(ContractorSuppliersRelationManager::class, [
+                'ownerRecord' => $contractor,
+                'pageClass' => EditContractor::class,
+            ])
+            ->assertTableColumnStateSet('is_default', true, $firstMapping)
+            ->assertTableColumnStateSet('is_default', false, $secondMapping)
+            ->assertTableActionDisabled('delete', $firstMapping)
+            ->assertTableActionEnabled('delete', $secondMapping)
+            ->call('updateTableColumnState', 'is_default', (string) $secondMapping->getKey(), true)
+            ->assertTableColumnStateSet('is_default', false, $firstMapping)
+            ->assertTableColumnStateSet('is_default', true, $secondMapping)
+            ->assertTableActionEnabled('delete', $firstMapping)
+            ->assertTableActionDisabled('delete', $secondMapping);
+
+        $this->assertSame($secondSupplierId, (int) $contractor->refresh()->supplier_id);
+
+        $component
+            ->call('updateTableColumnState', 'is_default', (string) $secondMapping->getKey(), false)
+            ->assertTableColumnStateSet('is_default', false, $secondMapping);
+
+        $this->assertNull($contractor->refresh()->supplier_id);
+    }
+
     private function createSupplier(int $clientId, int $code, string $name, bool $isActive = true): int
     {
         $partnerId = (int) DB::connection('sakemaru')->table('partners')->insertGetId([
