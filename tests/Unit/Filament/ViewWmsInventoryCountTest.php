@@ -7,6 +7,7 @@ use App\Filament\Resources\WmsInventoryCount\Pages\ViewWmsInventoryCountLogs;
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
 use App\Models\WmsInventoryCountItemLog;
+use App\Services\InventoryCount\InventoryDiffListPdfService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -41,6 +42,18 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertStringContainsString("replace(/[^0-9-]/g,'')", $blade);
         $this->assertStringContainsString("['e','E','+','.']", $blade);
         $this->assertStringNotContainsString("['e','E','+','-','.']", $blade);
+    }
+
+    public function test_pagination_alerts_when_inline_changes_are_pending(): void
+    {
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+
+        $this->assertStringContainsString('guardPagination(direction)', $blade);
+        $this->assertStringContainsString("alert('先に反映を実施してください')", $blade);
+        $this->assertSame(2, substr_count($blade, '@click="guardPagination(\'previous\')"'));
+        $this->assertSame(2, substr_count($blade, '@click="guardPagination(\'next\')"'));
+        $this->assertStringNotContainsString('wire:click="previousItemPage"', $blade);
+        $this->assertStringNotContainsString('wire:click="nextItemPage"', $blade);
     }
 
     public function test_diff_pdf_action_uses_active_count_round(): void
@@ -305,6 +318,88 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertSame(1, $page->countForTab('matched'));
         $this->assertSame(1, $page->countForTab('unmanaged'));
         $this->assertSame(-5, $page->roundDifferenceForDisplay($uncountedTarget->refresh(), 1));
+    }
+
+    public function test_pdf_diff_tab_uses_diff_pdf_target_list_and_order(): void
+    {
+        if (! Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            $this->markTestSkipped('wms_inventory_count_items.ending_system_quantity is not available.');
+        }
+
+        $inventoryCount = WmsInventoryCount::create([
+            'count_no' => 'TST-'.Str::upper(Str::random(12)),
+            'client_id' => 1,
+            'warehouse_id' => 22,
+            'warehouse_code' => '22',
+            'warehouse_name' => 'PDF順タブテスト倉庫',
+            'count_date' => now()->toDateString(),
+            'status' => WmsInventoryCount::STATUS_COUNTING,
+            'current_count_round' => 1,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $this->createItemInCategories(1001, 20),
+            'item_code' => 'PDF020',
+            'item_name' => 'PDF順中分類20',
+            'location_code1' => 'A',
+            'location_no' => 'A01',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'first_count_quantity' => 3,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $this->createItemInCategories(1001, 10),
+            'item_code' => 'PDF010',
+            'item_name' => 'PDF順中分類10',
+            'location_code1' => 'Z',
+            'location_no' => 'Z01',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'first_count_quantity' => 3,
+            'cost_price' => 10,
+        ]);
+
+        WmsInventoryCountItem::create([
+            'inventory_count_id' => $inventoryCount->id,
+            'item_id' => $this->createItemInCategories(9999, 5),
+            'item_code' => 'PDF999',
+            'item_name' => 'PDF順対象外分類',
+            'location_code1' => 'B',
+            'location_no' => 'B01',
+            'system_quantity' => 5,
+            'ending_system_quantity' => 5,
+            'first_count_quantity' => 3,
+            'cost_price' => 10,
+        ]);
+
+        $page = new ViewWmsInventoryCount;
+        $page->record = $inventoryCount;
+        $page->activeCountRound = 1;
+        $page->setListTab('pdf_diff');
+
+        $pdfCodes = (new InventoryDiffListPdfService)
+            ->diffItemsForRound($inventoryCount, 1)
+            ->pluck('item_code')
+            ->all();
+
+        $this->assertSame(['PDF010', 'PDF020'], $pdfCodes);
+        $this->assertSame(3, $page->countForTab('diff'));
+        $this->assertSame(2, $page->countForTab('pdf_diff'));
+        $this->assertSame($pdfCodes, collect($page->rows()->items())->pluck('item_code')->all());
+
+        $page->sortBy('item_code');
+
+        $this->assertSame('', $page->sortColumn);
+        $this->assertSame($pdfCodes, collect($page->rows()->items())->pluck('item_code')->all());
+
+        $page->itemCodeFilter = 'PDF020';
+
+        $this->assertSame(1, $page->countForTab('pdf_diff'));
+        $this->assertSame(['PDF020'], collect($page->rows()->items())->pluck('item_code')->all());
     }
 
     public function test_active_round_difference_recalculation_uses_ending_system_quantity_without_touching_confirmed_snapshot(): void
@@ -854,6 +949,62 @@ class ViewWmsInventoryCountTest extends TestCase
             'item_set_id' => null,
             'item_category1_id' => $majorCategoryId,
             'item_category2_id' => 0,
+            'container_type_id' => 0,
+            'manufacture_type_id' => 0,
+            'storage_type_id' => 0,
+            'measurement_unit_weight' => 0,
+            'measurement_case_weight' => 0,
+            'order_rank' => 'ORDER_MANUAL',
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        if (Schema::connection('sakemaru')->hasColumn('items', 'is_managed_stock')) {
+            $itemData['is_managed_stock'] = $managedStock;
+        }
+
+        return (int) DB::connection('sakemaru')->table('items')->insertGetId($itemData);
+    }
+
+    private function createItemInCategories(int $majorCategoryCode, int $middleCategoryCode, bool $managedStock = true): int
+    {
+        $majorCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
+            'client_id' => 1,
+            'name' => 'PDF順大分類'.$majorCategoryCode,
+            'code' => $majorCategoryCode,
+            'depth' => 1,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $middleCategoryId = DB::connection('sakemaru')->table('item_categories')->insertGetId([
+            'client_id' => 1,
+            'name' => 'PDF順中分類'.$middleCategoryCode,
+            'code' => $middleCategoryCode,
+            'depth' => 2,
+            'creator_id' => 1,
+            'last_updater_id' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $itemData = [
+            'name_main' => 'PDF順対象'.Str::upper(Str::random(8)),
+            'code' => random_int(700000000, 799999999),
+            'type' => 'NOT_ALCOHOL',
+            'manufacturer_id' => 0,
+            'volume' => 1,
+            'capacity_case' => 1,
+            'creator_id' => 1,
+            'packaging' => '1',
+            'nickname' => 'PDF順対象',
+            'client_id' => 1,
+            'item_set_id' => null,
+            'item_category1_id' => $majorCategoryId,
+            'item_category2_id' => $middleCategoryId,
             'container_type_id' => 0,
             'manufacture_type_id' => 0,
             'storage_type_id' => 0,

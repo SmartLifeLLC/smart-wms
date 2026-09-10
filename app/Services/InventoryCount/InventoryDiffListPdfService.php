@@ -104,6 +104,17 @@ class InventoryDiffListPdfService
     }
 
     /**
+     * @return Collection<int, WmsInventoryCountItem>
+     */
+    public function diffItemsForRound(WmsInventoryCount $inventoryCount, int $round): Collection
+    {
+        $this->diffRound = min(max($round, 1), 3);
+        $this->uncountedRound = null;
+
+        return $this->queryItems($inventoryCount);
+    }
+
+    /**
      * @param  Collection<int, WmsInventoryCount>  $inventoryCounts
      */
     public function generateUncountedForCounts(Collection $inventoryCounts, int $round): string
