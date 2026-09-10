@@ -5,6 +5,7 @@
         $totalCount = $this->totalCount();
         $allCount = $this->countForTab('all');
         $diffCount = $this->countForTab('diff');
+        $pdfDiffCount = $this->countForTab('pdf_diff');
         $matchedCount = $this->countForTab('matched');
         $unmanagedCount = $this->countForTab('unmanaged');
         $pageFirst = $rows->firstItem() ?? 0;
@@ -101,6 +102,19 @@
                 this.changes = {};
                 this.focusItemCodeFilter();
             });
+        },
+        guardPagination(direction) {
+            if (this.changeCount > 0) {
+                alert('先に反映を実施してください');
+                return;
+            }
+
+            if (direction === 'previous') {
+                this.$wire.previousItemPage();
+                return;
+            }
+
+            this.$wire.nextItemPage();
         }
     }" @count-update="setChange($event.detail.id, $event.detail.field, $event.detail.value, $event.detail.origFirst, $event.detail.origSecond, $event.detail.origFinal, $event.detail.first, $event.detail.second, $event.detail.final)"
     class="flex h-[calc(100vh-72px)] min-h-0 flex-col gap-2">
@@ -139,6 +153,7 @@
                     <span class="text-xs text-slate-400">
                         全{{ number_format($allCount) }}件
                         / 差異{{ number_format($diffCount) }}件
+                        / 差分PDF順{{ number_format($pdfDiffCount) }}件
                         / 差異なし{{ number_format($matchedCount) }}件
                         / 在庫管理対象外{{ number_format($unmanagedCount) }}件
                         / 表示{{ number_format($pageFirst) }}-{{ number_format($pageLast) }}件
@@ -236,6 +251,17 @@
                         </span>
                     </button>
                     <button type="button"
+                        wire:click="setListTab('pdf_diff')"
+                        @click="activeTab = 'pdf_diff'"
+                        class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
+                        :class="activeTab === 'pdf_diff' ? 'border-slate-200 border-b-white bg-white text-purple-700 shadow-sm' : 'border-green-700 bg-green-800 text-white/85 hover:bg-green-900 hover:text-white'">
+                        <span x-show="activeTab === 'pdf_diff'" class="absolute inset-x-2 top-0 h-0.5 rounded-full bg-purple-600"></span>
+                        <span>差分PDF順</span>
+                        <span class="rounded-full px-2 py-0.5 text-[11px] font-black tabular-nums" :class="activeTab === 'pdf_diff' ? 'bg-purple-100 text-purple-700' : 'bg-white/15 text-white ring-1 ring-white/25'">
+                            {{ number_format($pdfDiffCount) }}
+                        </span>
+                    </button>
+                    <button type="button"
                         wire:click="setListTab('matched')"
                         @click="activeTab = 'matched'"
                         class="relative inline-flex h-10 items-center gap-2 rounded-t-md border px-3 text-xs font-bold transition"
@@ -275,16 +301,16 @@
                     </div>
                     <div class="flex items-center gap-1 text-xs font-bold">
                         <button type="button"
-                            wire:click="previousItemPage"
-                            x-bind:disabled="changeCount > 0"
+                            @click="guardPagination('previous')"
+                            x-bind:class="{ 'cursor-not-allowed opacity-40': changeCount > 0 }"
                             @disabled($rows->onFirstPage())
                             class="h-8 rounded-md border border-green-300 px-2 text-white disabled:cursor-not-allowed disabled:opacity-40 hover:bg-green-800">
                             前へ
                         </button>
                         <span class="px-2 tabular-nums">{{ $rows->currentPage() }} / {{ $rows->lastPage() }}</span>
                         <button type="button"
-                            wire:click="nextItemPage"
-                            x-bind:disabled="changeCount > 0"
+                            @click="guardPagination('next')"
+                            x-bind:class="{ 'cursor-not-allowed opacity-40': changeCount > 0 }"
                             @disabled(! $rows->hasMorePages())
                             class="h-8 rounded-md border border-green-300 px-2 text-white disabled:cursor-not-allowed disabled:opacity-40 hover:bg-green-800">
                             次へ
@@ -434,7 +460,8 @@
                                     $initSecond = $row->second_count_quantity !== null ? (string) (int) $row->second_count_quantity : '';
                                     $initFinal = $row->final_count_quantity !== null ? (string) (int) $row->final_count_quantity : '';
                                     $movementQty = $row->post_count_movement_quantity;
-                                    $endingSystemQty = $row->ending_system_quantity ?? $row->system_quantity;
+                                    $pdfSystemQty = $this->listTab === 'pdf_diff' ? $row->getAttribute('pdf_system_quantity') : null;
+                                    $endingSystemQty = $pdfSystemQty ?? $row->ending_system_quantity ?? $row->system_quantity;
                                     $firstConfirmedDiff = $row->confirmedRoundDifference(1);
                                     $secondConfirmedDiff = $row->confirmedRoundDifference(2);
                                     $finalConfirmedDiff = $row->confirmedRoundDifference(3);
@@ -635,16 +662,16 @@
                 </div>
                 <div class="flex items-center gap-1 font-bold">
                     <button type="button"
-                        wire:click="previousItemPage"
-                        x-bind:disabled="changeCount > 0"
+                        @click="guardPagination('previous')"
+                        x-bind:class="{ 'cursor-not-allowed opacity-40': changeCount > 0 }"
                         @disabled($rows->onFirstPage())
                         class="h-8 rounded-md border border-slate-300 bg-white px-3 disabled:cursor-not-allowed disabled:opacity-40 hover:bg-slate-100">
                         前へ
                     </button>
                     <span class="px-2 tabular-nums">{{ $rows->currentPage() }} / {{ $rows->lastPage() }}</span>
                     <button type="button"
-                        wire:click="nextItemPage"
-                        x-bind:disabled="changeCount > 0"
+                        @click="guardPagination('next')"
+                        x-bind:class="{ 'cursor-not-allowed opacity-40': changeCount > 0 }"
                         @disabled(! $rows->hasMorePages())
                         class="h-8 rounded-md border border-slate-300 bg-white px-3 disabled:cursor-not-allowed disabled:opacity-40 hover:bg-slate-100">
                         次へ

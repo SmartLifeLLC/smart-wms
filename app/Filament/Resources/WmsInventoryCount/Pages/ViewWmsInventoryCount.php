@@ -24,6 +24,7 @@ use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\Alignment;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -33,7 +34,7 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     private const UNCOUNTED_TARGET_MAJOR_CATEGORY_CODES = [1001, 1002, 1003, 1006];
 
-    private const LIST_TABS = ['all', 'diff', 'matched', 'unmanaged'];
+    private const LIST_TABS = ['all', 'diff', 'pdf_diff', 'matched', 'unmanaged'];
 
     protected static string $resource = WmsInventoryCountResource::class;
 
@@ -74,6 +75,13 @@ class ViewWmsInventoryCount extends Page implements HasForms
     public string $editSecondCountQty = '';
 
     public string $editFinalCountQty = '';
+
+    /**
+     * @var Collection<int, WmsInventoryCountItem>|null
+     */
+    private ?Collection $filteredPdfDiffItemsCache = null;
+
+    private ?string $filteredPdfDiffItemsCacheKey = null;
 
     public function mount(WmsInventoryCount $record): void
     {
@@ -122,6 +130,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
             return;
         }
         $this->listTab = $tab;
+        if ($tab === 'pdf_diff') {
+            $this->sortColumn = '';
+            $this->sortDirection = 'asc';
+        }
         $this->itemPage = 1;
     }
 
@@ -131,6 +143,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
             $this->listTab = 'all';
         }
 
+        if ($this->listTab === 'pdf_diff') {
+            $this->sortColumn = '';
+            $this->sortDirection = 'asc';
+        }
         $this->itemPage = 1;
     }
 
@@ -177,6 +193,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function sortBy(string $column): void
     {
+        if ($this->listTab === 'pdf_diff') {
+            return;
+        }
+
         if (! in_array($column, $this->sortableColumns(), true)) {
             return;
         }
@@ -226,6 +246,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function rows(): LengthAwarePaginator
     {
+        if ($this->listTab === 'pdf_diff') {
+            return $this->pdfDiffRows();
+        }
+
         $query = $this->inventoryCountItemsQuery();
         $this->applyFilters($query);
         $this->applyTabFilter($query, $this->listTab);
@@ -236,7 +260,10 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function goToItemPage(int $page): void
     {
-        $lastPage = max(1, (int) ceil($this->filteredQuery()->count() / $this->itemPerPage));
+        $total = $this->listTab === 'pdf_diff'
+            ? $this->filteredPdfDiffItems()->count()
+            : $this->filteredQuery()->count();
+        $lastPage = max(1, (int) ceil($total / $this->itemPerPage));
         $this->itemPage = min(max(1, $page), $lastPage);
     }
 
@@ -314,11 +341,19 @@ class ViewWmsInventoryCount extends Page implements HasForms
 
     public function totalCount(): int
     {
+        if ($this->listTab === 'pdf_diff') {
+            return $this->filteredPdfDiffItems()->count();
+        }
+
         return $this->filteredQuery()->count();
     }
 
     public function countForTab(string $tab): int
     {
+        if ($tab === 'pdf_diff') {
+            return $this->filteredPdfDiffItems()->count();
+        }
+
         $query = $this->inventoryCountItemsQuery();
         $this->applyFilters($query);
         $this->applyTabFilter($query, $tab);
@@ -368,6 +403,69 @@ class ViewWmsInventoryCount extends Page implements HasForms
         $this->applyTabFilter($query, $this->listTab);
 
         return $query;
+    }
+
+    private function pdfDiffRows(): LengthAwarePaginator
+    {
+        $items = $this->filteredPdfDiffItems();
+
+        return new LengthAwarePaginator(
+            $items->forPage($this->itemPage, $this->itemPerPage)->values(),
+            $items->count(),
+            $this->itemPerPage,
+            $this->itemPage,
+            [
+                'path' => request()->url(),
+                'pageName' => 'inventory_items_page',
+            ],
+        );
+    }
+
+    /**
+     * @return Collection<int, WmsInventoryCountItem>
+     */
+    private function filteredPdfDiffItems(): Collection
+    {
+        $cacheKey = $this->filteredPdfDiffItemsCacheKey();
+        if ($this->filteredPdfDiffItemsCacheKey === $cacheKey && $this->filteredPdfDiffItemsCache !== null) {
+            return $this->filteredPdfDiffItemsCache;
+        }
+
+        $items = (new InventoryDiffListPdfService)->diffItemsForRound($this->record, $this->activeCountRound);
+
+        if ($this->floorFilter !== '') {
+            $items = $items->filter(fn (WmsInventoryCountItem $item): bool => (string) $item->floor_name === $this->floorFilter);
+        }
+
+        $items = $this->applyCollectionTextFilter($items, $this->areaFilter, ['location_code1']);
+        $items = $this->applyCollectionTextFilter($items, $this->itemCodeFilter, ['item_code']);
+        $items = $this->applyCollectionTextFilter($items, $this->locationFilter, ['location_no', 'location_code1', 'location_code2', 'location_code3']);
+
+        if ($this->selectedLocationFilters !== []) {
+            $selectedLocations = array_map('strval', $this->selectedLocationFilters);
+            $items = $items->filter(fn (WmsInventoryCountItem $item): bool => in_array((string) $item->location_no, $selectedLocations, true));
+        }
+
+        $items = $this->applyCollectionTextFilter($items, $this->itemNameFilter, ['item_name']);
+
+        $this->filteredPdfDiffItemsCacheKey = $cacheKey;
+        $this->filteredPdfDiffItemsCache = $items->values();
+
+        return $this->filteredPdfDiffItemsCache;
+    }
+
+    private function filteredPdfDiffItemsCacheKey(): string
+    {
+        return json_encode([
+            'record_id' => $this->record->id,
+            'round' => $this->activeCountRound,
+            'floor' => $this->floorFilter,
+            'area' => $this->areaFilter,
+            'item_code' => $this->itemCodeFilter,
+            'location' => $this->locationFilter,
+            'selected_locations' => array_values($this->selectedLocationFilters),
+            'item_name' => $this->itemNameFilter,
+        ]) ?: '';
     }
 
     private function inventoryCountItemsQuery(): \Illuminate\Database\Eloquent\Builder
@@ -615,6 +713,34 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 $q->orWhere($column, 'like', "%{$value}%");
             }
         });
+    }
+
+    /**
+     * @param  Collection<int, WmsInventoryCountItem>  $items
+     * @param  array<int, string>  $attributes
+     * @return Collection<int, WmsInventoryCountItem>
+     */
+    private function applyCollectionTextFilter(Collection $items, string $value, array $attributes): Collection
+    {
+        $value = $this->normalizeCollectionFilterValue($value);
+        if ($value === '') {
+            return $items;
+        }
+
+        return $items->filter(function (WmsInventoryCountItem $item) use ($value, $attributes): bool {
+            foreach ($attributes as $attribute) {
+                if (str_contains($this->normalizeCollectionFilterValue($item->{$attribute}), $value)) {
+                    return true;
+                }
+            }
+
+            return false;
+        });
+    }
+
+    private function normalizeCollectionFilterValue(mixed $value): string
+    {
+        return mb_strtolower(trim(mb_convert_kana((string) ($value ?? ''), 'as')));
     }
 
     // ========================================
