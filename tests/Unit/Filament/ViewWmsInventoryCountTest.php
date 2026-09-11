@@ -65,6 +65,10 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertStringContainsString("Action::make('downloadDiffListWorkbook')", $page);
         $this->assertStringContainsString('->label(\'差分EXCEL\')', $page);
         $this->assertStringContainsString('InventoryDiffListWorkbookService)->generate($record, $this->activeCountRound)', $page);
+        $this->assertStringNotContainsString(
+            'WmsInventoryCount::STATUS_DRAFT',
+            substr($page, strpos($page, "Action::make('downloadDiffListWorkbook')"), strpos($page, "Action::make('downloadUncountedListPdf')") - strpos($page, "Action::make('downloadDiffListWorkbook')"))
+        );
 
         $diffPdfPosition = strpos($page, "Action::make('downloadDiffListPdf')");
         $diffWorkbookPosition = strpos($page, "Action::make('downloadDiffListWorkbook')");
@@ -86,6 +90,10 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertNotFalse($bladeUncountedPdfPosition);
         $this->assertGreaterThan($bladeDiffPdfPosition, $bladeDiffWorkbookPosition);
         $this->assertLessThan($bladeUncountedPdfPosition, $bladeDiffWorkbookPosition);
+        $this->assertStringContainsString(
+            "{{ \$this->getAction('downloadDiffListPdf') }}\n                    {{ \$this->getAction('downloadDiffListWorkbook') }}\n                    @if",
+            $blade
+        );
     }
 
     public function test_uncounted_pdf_action_uses_active_count_round(): void
