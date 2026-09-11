@@ -818,7 +818,7 @@ class InventoryCountServiceTest extends TestCase
         $this->assertSame('8.000', (string) $insertedBackup->new_ending_system_quantity);
     }
 
-    public function test_ledger_balance_counts_transfer_inbound_by_delivered_date_without_delivered_flag_filter(): void
+    public function test_ledger_balance_counts_only_delivered_transfer_inbound_by_delivered_date(): void
     {
         foreach ([
             'trades',
@@ -847,7 +847,7 @@ class InventoryCountServiceTest extends TestCase
 
         $balances = (new InventoryCountLedgerBalanceService)->balancesByItem($clientId, $warehouseId, $endDate);
 
-        $this->assertSame(12.0, $balances[(int) $item->id] ?? null);
+        $this->assertSame(5.0, $balances[(int) $item->id] ?? null);
     }
 
     public function test_ledger_balance_counts_transfer_outbound_by_picking_date_with_process_date_fallback(): void

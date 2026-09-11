@@ -431,7 +431,7 @@ class InventoryCountLedgerBalanceService
     private function stockTransferInRows(int $clientId, int $warehouseId, string $fromDate, string $endDate): Collection
     {
         $pieceQty = $this->pieceQty();
-        $movementDate = 'COALESCE(st.delivered_date, t.process_date)';
+        $movementDate = 'st.delivered_date';
 
         return DB::connection('sakemaru')
             ->table('trade_items as ti')
@@ -443,7 +443,9 @@ class InventoryCountLedgerBalanceService
             ->where('t.is_active', true)
             ->where('t.is_latest', true)
             ->where('st.is_active', true)
+            ->where('st.is_delivered', true)
             ->where('ti.is_active', true)
+            ->whereNotNull('st.delivered_date')
             ->when(Schema::connection('sakemaru')->hasTable('stock_transfer_lot_allocations'), fn ($query) => $query->whereNotExists(function ($query) {
                 $query
                     ->select(DB::raw(1))
@@ -493,7 +495,7 @@ class InventoryCountLedgerBalanceService
             return collect();
         }
 
-        $movementDate = 'COALESCE(st.delivered_date, t.process_date)';
+        $movementDate = 'st.delivered_date';
 
         return DB::connection('sakemaru')
             ->table('stock_transfer_lot_allocations as a')
@@ -509,7 +511,9 @@ class InventoryCountLedgerBalanceService
             ->where('t.is_active', true)
             ->where('t.is_latest', true)
             ->where('st.is_active', true)
+            ->where('st.is_delivered', true)
             ->where('ti.is_active', true)
+            ->whereNotNull('st.delivered_date')
             ->whereBetween(DB::raw($movementDate), [$fromDate, $endDate])
             ->groupBy('rs.item_id', DB::raw($movementDate))
             ->selectRaw("rs.item_id, {$movementDate} AS movement_date, 61 AS sort_order, 0 AS source_id, 0 AS source_detail_id, SUM(a.quantity) AS net_quantity")
