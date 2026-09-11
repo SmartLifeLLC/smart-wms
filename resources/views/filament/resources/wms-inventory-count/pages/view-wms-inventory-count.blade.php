@@ -366,6 +366,7 @@
                     {{ $this->getAction('downloadInstructionSheet') }}
                     {{ $this->getAction('downloadDiffListPdf') }}
                     @if ($record->status !== \App\Models\WmsInventoryCount::STATUS_DRAFT)
+                        {{ $this->getAction('downloadDiffListWorkbook') }}
                         {{ $this->getAction('downloadUncountedListPdf') }}
                         {{ $this->getAction('downloadDifferenceWorkbook') }}
                     @endif

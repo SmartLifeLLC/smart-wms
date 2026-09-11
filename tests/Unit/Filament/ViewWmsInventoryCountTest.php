@@ -62,6 +62,30 @@ class ViewWmsInventoryCountTest extends TestCase
 
         $this->assertStringContainsString('->generate($record, $this->activeCountRound)', $page);
         $this->assertStringContainsString("\$filename = '棚卸差分確認_'.\$this->activeRoundLabel().'_'.", $page);
+        $this->assertStringContainsString("Action::make('downloadDiffListWorkbook')", $page);
+        $this->assertStringContainsString('->label(\'差分EXCEL\')', $page);
+        $this->assertStringContainsString('InventoryDiffListWorkbookService)->generate($record, $this->activeCountRound)', $page);
+
+        $diffPdfPosition = strpos($page, "Action::make('downloadDiffListPdf')");
+        $diffWorkbookPosition = strpos($page, "Action::make('downloadDiffListWorkbook')");
+        $uncountedPdfPosition = strpos($page, "Action::make('downloadUncountedListPdf')");
+
+        $this->assertNotFalse($diffPdfPosition);
+        $this->assertNotFalse($diffWorkbookPosition);
+        $this->assertNotFalse($uncountedPdfPosition);
+        $this->assertGreaterThan($diffPdfPosition, $diffWorkbookPosition);
+        $this->assertLessThan($uncountedPdfPosition, $diffWorkbookPosition);
+
+        $blade = file_get_contents(resource_path('views/filament/resources/wms-inventory-count/pages/view-wms-inventory-count.blade.php'));
+        $bladeDiffPdfPosition = strpos($blade, "\$this->getAction('downloadDiffListPdf')");
+        $bladeDiffWorkbookPosition = strpos($blade, "\$this->getAction('downloadDiffListWorkbook')");
+        $bladeUncountedPdfPosition = strpos($blade, "\$this->getAction('downloadUncountedListPdf')");
+
+        $this->assertNotFalse($bladeDiffPdfPosition);
+        $this->assertNotFalse($bladeDiffWorkbookPosition);
+        $this->assertNotFalse($bladeUncountedPdfPosition);
+        $this->assertGreaterThan($bladeDiffPdfPosition, $bladeDiffWorkbookPosition);
+        $this->assertLessThan($bladeUncountedPdfPosition, $bladeDiffWorkbookPosition);
     }
 
     public function test_uncounted_pdf_action_uses_active_count_round(): void
