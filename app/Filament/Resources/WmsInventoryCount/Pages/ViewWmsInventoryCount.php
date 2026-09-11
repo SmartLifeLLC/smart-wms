@@ -1711,7 +1711,6 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->label('差分EXCEL')
                 ->icon('heroicon-o-table-cells')
                 ->color('gray')
-                ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_DRAFT)
                 ->action(function () use ($record) {
                     $xlsxContent = (new InventoryDiffListWorkbookService)->generate($record, $this->activeCountRound);
                     $filename = '棚卸差分確認_'.$this->activeRoundLabel().'_'.($record->count_no ?? 'unknown').'.xlsx';
