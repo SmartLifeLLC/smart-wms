@@ -16,6 +16,7 @@ class WmsInventoryCountItemTable
     {
         return $table
             ->striped()
+            ->modifyQueryUsing(fn ($query) => $query->withoutOwnedSetItems())
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -51,14 +52,37 @@ class WmsInventoryCountItemTable
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('system_quantity')
-                    ->label('理論数量')
+                    ->label('理論在庫(開始)')
                     ->numeric(0)
                     ->alignEnd(),
+
+                TextColumn::make('ending_system_quantity')
+                    ->label('理論在庫')
+                    ->numeric(0)
+                    ->alignEnd()
+                    ->placeholder('-'),
 
                 TextColumn::make('first_count_quantity')
                     ->label('1回目')
                     ->numeric(0)
                     ->alignEnd()
+                    ->placeholder('-'),
+
+                TextColumn::make('first_count_difference')
+                    ->label('1回目差分')
+                    ->state(fn (WmsInventoryCountItem $record) => $record->roundDifference(1))
+                    ->numeric(0)
+                    ->alignEnd()
+                    ->placeholder('-')
+                    ->color(fn ($state) => match (true) {
+                        $state === null => null,
+                        (float) $state > 0 => 'success',
+                        (float) $state < 0 => 'danger',
+                        default => null,
+                    }),
+
+                TextColumn::make('first_count_actor_name')
+                    ->label('1回目入力者')
                     ->placeholder('-'),
 
                 TextColumn::make('second_count_quantity')
@@ -67,10 +91,44 @@ class WmsInventoryCountItemTable
                     ->alignEnd()
                     ->placeholder('-'),
 
-                TextColumn::make('final_count_quantity')
-                    ->label('最終')
+                TextColumn::make('second_count_difference')
+                    ->label('2回目差分')
+                    ->state(fn (WmsInventoryCountItem $record) => $record->roundDifference(2))
                     ->numeric(0)
                     ->alignEnd()
+                    ->placeholder('-')
+                    ->color(fn ($state) => match (true) {
+                        $state === null => null,
+                        (float) $state > 0 => 'success',
+                        (float) $state < 0 => 'danger',
+                        default => null,
+                    }),
+
+                TextColumn::make('second_count_actor_name')
+                    ->label('2回目入力者')
+                    ->placeholder('-'),
+
+                TextColumn::make('final_count_quantity')
+                    ->label('3回目')
+                    ->numeric(0)
+                    ->alignEnd()
+                    ->placeholder('-'),
+
+                TextColumn::make('final_count_difference')
+                    ->label('3回目差分')
+                    ->state(fn (WmsInventoryCountItem $record) => $record->roundDifference(3))
+                    ->numeric(0)
+                    ->alignEnd()
+                    ->placeholder('-')
+                    ->color(fn ($state) => match (true) {
+                        $state === null => null,
+                        (float) $state > 0 => 'success',
+                        (float) $state < 0 => 'danger',
+                        default => null,
+                    }),
+
+                TextColumn::make('final_count_actor_name')
+                    ->label('3回目入力者')
                     ->placeholder('-'),
 
                 TextColumn::make('difference_quantity')
@@ -102,6 +160,7 @@ class WmsInventoryCountItemTable
                 SelectFilter::make('floor_name')
                     ->label('フロア')
                     ->options(fn () => WmsInventoryCountItem::query()
+                        ->withoutOwnedSetItems()
                         ->distinct()
                         ->whereNotNull('floor_name')
                         ->pluck('floor_name', 'floor_name')
@@ -110,6 +169,7 @@ class WmsInventoryCountItemTable
                 SelectFilter::make('location_code1')
                     ->label('エリア')
                     ->options(fn () => WmsInventoryCountItem::query()
+                        ->withoutOwnedSetItems()
                         ->distinct()
                         ->whereNotNull('location_code1')
                         ->pluck('location_code1', 'location_code1')

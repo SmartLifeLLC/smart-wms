@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
  * - FEFO (First Expiry, First Out) for expiration-managed items
  * - FIFO (First In, First Out) for non-expiration items
  * - Location quantity type restriction is ignored for allocation
- * - Optimistic locking with lock_version
+ * - Stock ceilings are checked in pieces, while reservation quantities keep the order unit
  * - Batch processing (50 rows/batch, max 2 pages)
  */
 class StockAllocationService
@@ -27,7 +27,7 @@ class StockAllocationService
     /**
      * Allocate stock for a specific item in a wave
      *
-     * @param  int  $needQty  Required quantity (in PIECE)
+     * @param  int  $needQty  Required quantity in the order unit
      * @param  string  $quantityType  Order quantity type (CASE|PIECE|CARTON)
      * @param  int  $sourceId  Source record ID (earning_id or trade_item_id)
      * @param  string  $sourceType  Source type (EARNING|TRADE_ITEM)
@@ -130,9 +130,10 @@ class StockAllocationService
         $item = DB::connection('sakemaru')
             ->table('items')
             ->where('id', $itemId)
-            ->first(['uses_expiration_date']);
+            ->first(['uses_expiration_date', 'capacity_case', 'capacity_carton']);
 
-        $usesExpiration = $item->uses_expiration_date ?? false;
+        $usesExpiration = (bool) ($item?->uses_expiration_date ?? false);
+        $unitSize = $this->unitSizeFor($quantityType, $item);
 
         // Process in batches (max 2 pages)
         for ($page = 0; $page < self::MAX_PAGES && $totalAllocated < $needQty; $page++) {
@@ -161,14 +162,14 @@ class StockAllocationService
                     break;
                 }
 
-                // available_quantity は生成カラム (= current_quantity - reserved_quantity)
-                // Sakemaru側で売上時に reserved_quantity が増加済み
-                $available = $stock->available_quantity;
-                if ($available <= 0) {
+                // available_quantity is in pieces. Convert to the order unit so
+                // CASE/CARTON reservations cannot consume more pieces than exist.
+                $availableUnits = $this->allocatableUnitsFromPieces((int) $stock->available_quantity, $unitSize);
+                if ($availableUnits <= 0) {
                     continue;
                 }
 
-                $takeQty = min($needQty - $totalAllocated, $available);
+                $takeQty = min($needQty - $totalAllocated, $availableUnits);
 
                 // Note: real_stocks の数量更新は行わない（Sakemaru側で管理）
                 // wms_reservations の作成のみ行う
@@ -257,8 +258,11 @@ class StockAllocationService
             'item_id' => $itemId,
             'wave_id' => $waveId,
             'need_qty' => $needQty,
+            'need_pieces' => $needQty * $unitSize,
             'allocated' => $totalAllocated,
+            'allocated_pieces' => $totalAllocated * $unitSize,
             'shortage' => $shortageQty,
+            'shortage_pieces' => $shortageQty * $unitSize,
             'elapsed_ms' => $elapsed,
             'race_count' => $raceCount,
         ]);
@@ -289,21 +293,26 @@ class StockAllocationService
         ?int $sourceId = null,
         ?int $sourceLineId = null
     ): \Illuminate\Support\Collection {
-        $ownReservationExpr = '0';
+        $lotEarningPiecesExpr = $this->lotEarningPiecesExpression();
+        $reservedPiecesExpr = $this->reservedLotEarningsPiecesExpression($lotEarningPiecesExpr);
+        $effectiveReservedPiecesExpr = "GREATEST(COALESCE(rsl.reserved_quantity, 0), {$reservedPiecesExpr})";
+
+        $ownReservationPiecesExpr = '0';
         if ($sourceType === 'EARNING' && $sourceId !== null && $sourceLineId !== null) {
-            $ownReservationExpr = sprintf(
-                '(SELECT COALESCE(SUM(rsle.quantity), 0)
+            $ownReservationPiecesExpr = sprintf(
+                '(SELECT COALESCE(SUM(%s), 0)
                     FROM real_stock_lot_earnings rsle
                     WHERE rsle.real_stock_lot_id = rsl.id
                       AND rsle.earning_id = %d
                       AND rsle.trade_item_id = %d
                       AND rsle.status = "RESERVED")',
+                $lotEarningPiecesExpr,
                 $sourceId,
                 $sourceLineId
             );
         }
 
-        $availableExpr = "(rsl.current_quantity - rsl.reserved_quantity + {$ownReservationExpr})";
+        $availableExpr = "GREATEST(LEAST(COALESCE(rsl.current_quantity, 0), COALESCE(rsl.current_quantity, 0) - {$effectiveReservedPiecesExpr} + {$ownReservationPiecesExpr}), 0)";
 
         $query = DB::connection('sakemaru')
             ->table('real_stocks as rs')
@@ -314,6 +323,7 @@ class StockAllocationService
             ->join('locations as l', 'l.id', '=', 'rsl.location_id')
             ->where('rs.warehouse_id', $warehouseId)
             ->where('rs.item_id', $itemId)
+            ->where('l.is_disabled', false)
             ->whereRaw("{$availableExpr} > 0");
 
         // Apply buyer restriction filter if buyerId is provided
@@ -359,5 +369,33 @@ class StockAllocationService
             ->offset($offset);
 
         return $query->get();
+    }
+
+    protected function unitSizeFor(string $quantityType, ?object $item): int
+    {
+        return match (strtoupper($quantityType)) {
+            'CASE' => max(1, (int) ($item->capacity_case ?? 1)),
+            'CARTON' => max(1, (int) ($item->capacity_carton ?? $item->capacity_case ?? 1)),
+            default => 1,
+        };
+    }
+
+    protected function allocatableUnitsFromPieces(int $availablePieces, int $unitSize): int
+    {
+        return intdiv(max(0, $availablePieces), max(1, $unitSize));
+    }
+
+    protected function reservedLotEarningsPiecesExpression(string $lotEarningPiecesExpr): string
+    {
+        return "(SELECT COALESCE(SUM({$lotEarningPiecesExpr}), 0)
+            FROM real_stock_lot_earnings rsle
+            WHERE rsle.real_stock_lot_id = rsl.id
+              AND rsle.status = \"RESERVED\")";
+    }
+
+    protected function lotEarningPiecesExpression(): string
+    {
+        // real_stock_lot_earnings.quantity is stored as piece quantity, even for CASE/CARTON orders.
+        return 'COALESCE(rsle.quantity, 0)';
     }
 }

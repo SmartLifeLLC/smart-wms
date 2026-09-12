@@ -91,13 +91,22 @@ class LocationsTable
                 TextColumn::make('available_quantity_flags')
                     ->label('数量タイプ')
                     ->badge()
-                    ->formatStateUsing(fn (int $state): string => match ($state) {
-                        1 => 'ケース',
-                        2 => 'バラ',
-                        3 => 'ケース+バラ',
-                        4 => 'ボール',
-                        8 => '無し',
-                        default => (string) $state,
+                    ->formatStateUsing(function (int $state): string {
+                        if ($state === 8) {
+                            return '無し';
+                        }
+                        $parts = [];
+                        if ($state & 1) {
+                            $parts[] = 'ケース';
+                        }
+                        if ($state & 2) {
+                            $parts[] = 'バラ';
+                        }
+                        if ($state & 4) {
+                            $parts[] = 'ボール';
+                        }
+
+                        return $parts ? implode('+', $parts) : (string) $state;
                     })
                     ->color(fn (int $state): string => match ($state) {
                         1 => 'info',
@@ -209,6 +218,7 @@ class LocationsTable
 
             $z00 = $db->table('locations')
                 ->where('warehouse_id', $source->warehouse_id)
+                ->where('is_disabled', false)
                 ->whereRaw("CONCAT(COALESCE(code1, ''), COALESCE(code2, ''), COALESCE(code3, '')) = 'Z00'")
                 ->orderByRaw("name = 'デフォルト' DESC")
                 ->orderBy('id')
@@ -285,6 +295,13 @@ class LocationsTable
                         'updated_at' => $now,
                     ]);
             }
+
+            $db->table('locations')
+                ->where('id', $source->id)
+                ->update([
+                    'is_disabled' => true,
+                    'updated_at' => $now,
+                ]);
 
             return [
                 'lots' => $lots,

@@ -9,6 +9,7 @@ enum TransmissionDocumentStatus: string implements HasLabel
     case TEST = 'TEST';             // テストファイル（JX送信不可）
     case DRAFT = 'DRAFT';           // テスト生成（確定前）- 旧ステータス
     case PENDING = 'PENDING';       // 送信待ち（確定済み）
+    case TRANSMITTING = 'TRANSMITTING';
     case TRANSMITTED = 'TRANSMITTED';
     case CONFIRMED = 'CONFIRMED';
     case ERROR = 'ERROR';
@@ -20,6 +21,7 @@ enum TransmissionDocumentStatus: string implements HasLabel
             self::TEST => 'テスト',
             self::DRAFT => 'テスト生成',
             self::PENDING => '送信待ち',
+            self::TRANSMITTING => '送信中',
             self::TRANSMITTED => '送信済み',
             self::CONFIRMED => '確認済み',
             self::ERROR => 'エラー',
@@ -33,6 +35,7 @@ enum TransmissionDocumentStatus: string implements HasLabel
             self::TEST => 'gray',
             self::DRAFT => 'gray',
             self::PENDING => 'warning',
+            self::TRANSMITTING => 'info',
             self::TRANSMITTED => 'success',
             self::CONFIRMED => 'info',
             self::ERROR => 'danger',

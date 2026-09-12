@@ -14,6 +14,7 @@ use App\Filament\Support\AdminResource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class LocationResource extends AdminResource
 {
@@ -53,7 +54,8 @@ class LocationResource extends AdminResource
 
     public static function table(Table $table): Table
     {
-        return LocationsTable::configure($table);
+        return LocationsTable::configure($table)
+            ->modifyQueryUsing(fn (Builder $query) => $query->where('locations.is_disabled', false));
     }
 
     public static function getRelations(): array

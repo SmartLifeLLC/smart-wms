@@ -166,7 +166,13 @@ class OrderOutputQuantityResolver
                 ->where('iqi.quantity', '>', 1);
 
             if ($orderingCode) {
-                $query->whereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode]);
+                $query->where(function ($query) use ($orderingCode) {
+                    $query->where('isi.search_string', $orderingCode);
+
+                    if (ctype_digit($orderingCode)) {
+                        $query->orWhereRaw('LPAD(isi.search_string, 13, "0") = ?', [$orderingCode]);
+                    }
+                });
             } else {
                 $query->where('isi.is_used_for_ordering', true);
             }
@@ -298,6 +304,12 @@ class OrderOutputQuantityResolver
 
         if ($code === '' || preg_match('/^0+$/', $code) === 1) {
             return null;
+        }
+
+        if (preg_match('/\D/', $code) === 1) {
+            $code = ltrim($code, '0');
+
+            return $code === '' ? null : $code;
         }
 
         return str_pad($code, 13, '0', STR_PAD_LEFT);

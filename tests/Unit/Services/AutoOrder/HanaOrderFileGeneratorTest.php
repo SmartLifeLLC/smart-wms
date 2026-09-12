@@ -6,6 +6,7 @@ use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use Illuminate\Support\Collection;
+use Tests\Support\FakeLegacyEosSlipNumberService;
 use Tests\TestCase;
 
 /**
@@ -21,7 +22,7 @@ class HanaOrderFileGeneratorTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->generator = new HanaOrderJXFileGenerator;
+        $this->generator = new HanaOrderJXFileGenerator(new FakeLegacyEosSlipNumberService);
     }
 
     /**
@@ -626,6 +627,55 @@ class HanaOrderFileGeneratorTest extends TestCase
 
     /**
      * @test
+     * 仕入入数1のケース発注は、JX原単価にバラ原価を使うこと
+     */
+    public function it_uses_unit_cost_for_capacity_one_case_ordering_code(): void
+    {
+        $itemId = 999010;
+        $orderingCode = '4901004015112';
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => $itemId,
+            'quantity_type' => \App\Enums\QuantityType::CASE,
+            'order_quantity' => 2,
+            'ordering_code' => $orderingCode,
+            'purchase_unit_price' => 4147,
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => $itemId,
+            'code' => '171108',
+            'name_main' => 'TEST KEG 10L',
+            'capacity_case' => 1,
+        ]);
+
+        $generatorReflection = new \ReflectionClass($this->generator);
+
+        $orderingCodeInfoCache = $generatorReflection->getProperty('orderingCodeInfoCache');
+        $orderingCodeInfoCache->setAccessible(true);
+        $orderingCodeInfoCache->setValue($this->generator, [
+            $itemId.':'.$orderingCode => null,
+        ]);
+
+        $costPriceCache = $generatorReflection->getProperty('costPriceCache');
+        $costPriceCache->setAccessible(true);
+        $costPriceCache->setValue($this->generator, [$itemId => (object) [
+            'cost_case_price' => 0,
+            'cost_unit_price' => 4147,
+            'purchase_unit_price' => 4147,
+        ]]);
+
+        $generateDRecord = $generatorReflection->getMethod('generateDRecord');
+        $generateDRecord->setAccessible(true);
+        $dRecord = $generateDRecord->invoke($this->generator, $candidate, 1);
+
+        $this->assertEquals(1, (int) substr($dRecord, 88, 6), 'Capacity should remain one for capacity_case=1 item');
+        $this->assertEquals(2, (int) substr($dRecord, 94, 7), 'Case quantity should keep the candidate order quantity');
+        $this->assertEquals(0, (int) substr($dRecord, 101, 7), 'Piece quantity should remain zero for case order');
+        $this->assertEquals(414700, (int) substr($dRecord, 108, 10), 'Unit price should use unit cost when capacity_case is one');
+    }
+
+    /**
+     * @test
      * ケース発注の数量はそのまま送り、6缶発注CDでも原単価はケース原価を使うこと
      */
     public function it_keeps_case_quantity_and_uses_case_cost_for_six_pack_ordering_code(): void
@@ -898,6 +948,72 @@ class HanaOrderFileGeneratorTest extends TestCase
             $retrievedCode,
             'Code with is_used_for_ordering flag should be retrieved'
         );
+    }
+
+    /**
+     * @test
+     * 同一発注先×倉庫でも入荷予定日が異なる候補は別Bレコードに分割され、
+     * 各Bレコードの納品日が各候補の入荷予定日になること（先頭候補の日付で統一されない）
+     */
+    public function it_splits_b_records_by_expected_arrival_date(): void
+    {
+        $itemId = 999111;
+
+        $makeCandidate = function (string $arrivalDate) use ($itemId): object {
+            return (object) [
+                'id' => null,
+                'contractor_id' => 1,
+                'warehouse_id' => 1,
+                'warehouse' => null,
+                'contractor' => null,
+                'expected_arrival_date' => \Carbon\Carbon::parse($arrivalDate),
+                'ordering_code' => '4900000000001',
+                'quantity_type' => \App\Enums\QuantityType::CASE,
+                'order_quantity' => 1,
+                'item' => (object) [
+                    'id' => $itemId,
+                    'code' => '143999',
+                    'name_main' => 'TEST ARRIVAL SPLIT',
+                    'capacity_case' => 24,
+                ],
+            ];
+        };
+
+        // 同一発注先(1)×倉庫(1)・入荷予定日違いの2候補
+        $candidates = collect([
+            $makeCandidate('2026-05-09'),
+            $makeCandidate('2026-05-12'),
+        ]);
+
+        $reflection = new \ReflectionClass($this->generator);
+
+        // DBアクセスを避けるためキャッシュを事前投入
+        $orderingUnitQtyCache = $reflection->getProperty('orderingUnitQtyCache');
+        $orderingUnitQtyCache->setAccessible(true);
+        $orderingUnitQtyCache->setValue($this->generator, [$itemId.':4900000000001' => null]);
+
+        $costPriceCache = $reflection->getProperty('costPriceCache');
+        $costPriceCache->setAccessible(true);
+        $costPriceCache->setValue($this->generator, [$itemId => (object) [
+            'cost_case_price' => 0,
+            'cost_unit_price' => 0,
+        ]]);
+
+        $generateFileContent = $reflection->getMethod('generateFileContent');
+        $generateFileContent->setAccessible(true);
+        $content = $generateFileContent->invoke($this->generator, 1, $candidates, null);
+
+        $records = $this->splitRecords($content);
+        $bRecords = array_values(array_filter($records, fn ($r) => str_starts_with($r, 'B')));
+
+        // 入荷予定日が2種類 → Bレコードも2件に分割される
+        $this->assertCount(2, $bRecords, 'Each distinct arrival date should produce its own B record');
+
+        // 各Bレコードの納品日(30-35: YYMMDD)を抽出
+        $deliveryDates = array_map(fn ($r) => substr($r, 29, 6), $bRecords);
+        sort($deliveryDates);
+
+        $this->assertSame(['260509', '260512'], $deliveryDates, 'B record delivery dates must match each candidate arrival date, not be unified to the first');
     }
 
     /**

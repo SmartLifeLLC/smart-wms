@@ -6,6 +6,7 @@ use App\Contracts\IncomingFormatParserInterface;
 use App\Models\WmsIncomingReceivedDetail;
 use App\Models\WmsIncomingReceivedFile;
 use App\Models\WmsIncomingReceivedSlip;
+use App\Services\AutoOrder\IncomingReceivedQuantityNormalizer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -19,8 +20,6 @@ class JxIncomingParser implements IncomingFormatParserInterface
     private const RECORD_LENGTH = 128;
 
     private const ENCODING = 'SJIS-win';
-
-    private array $orderingUnitQuantityCache = [];
 
     public function parse(string $content, string $filename, ?int $contractorId = null): WmsIncomingReceivedFile
     {
@@ -269,72 +268,8 @@ class JxIncomingParser implements IncomingFormatParserInterface
 
     private function calculateTotalQuantity(int $caseQty, int $pieceQty, int $packQty, string $janCode): int
     {
-        $totalQuantity = ($packQty > 0) ? ($caseQty * $packQty) + $pieceQty : $pieceQty;
-
-        if ($orderingUnitQty = $this->getOrderingUnitQuantity($janCode)) {
-            return $totalQuantity * $orderingUnitQty;
-        }
-
-        return $totalQuantity;
-    }
-
-    /**
-     * JX受信JANが6缶パック等の発注荷姿コードなら、バラ換算用の荷姿入数を返す。
-     */
-    private function getOrderingUnitQuantity(string $janCode): ?int
-    {
-        $codes = $this->normalizedSearchCodes($janCode);
-        if (empty($codes)) {
-            return null;
-        }
-
-        $cacheKey = implode('|', $codes);
-        if (array_key_exists($cacheKey, $this->orderingUnitQuantityCache)) {
-            return $this->orderingUnitQuantityCache[$cacheKey];
-        }
-
-        $row = DB::connection('sakemaru')
-            ->table('item_search_information as isi')
-            ->join('item_quantity_information as iqi', 'iqi.id', '=', 'isi.item_quantity_information_id')
-            ->join('items as i', 'i.id', '=', 'isi.item_id')
-            ->where('isi.is_active', true)
-            ->whereIn('isi.search_string', $codes)
-            ->where('iqi.quantity', '>', 1)
-            ->select('iqi.quantity', 'i.capacity_case')
-            ->orderBy('iqi.quantity')
-            ->first();
-
-        if (! $row) {
-            return $this->orderingUnitQuantityCache[$cacheKey] = null;
-        }
-
-        $quantity = (int) $row->quantity;
-        $capacityCase = (int) ($row->capacity_case ?? 0);
-
-        if ($quantity <= 1 || ($capacityCase > 1 && $quantity === $capacityCase)) {
-            return $this->orderingUnitQuantityCache[$cacheKey] = null;
-        }
-
-        return $this->orderingUnitQuantityCache[$cacheKey] = $quantity;
-    }
-
-    private function normalizedSearchCodes(string $code): array
-    {
-        $code = trim($code);
-        if ($code === '' || preg_match('/^0+$/', $code) === 1) {
-            return [];
-        }
-
-        $codes = [$code];
-        $withoutLeadingZeros = ltrim($code, '0');
-        if ($withoutLeadingZeros !== '') {
-            $codes[] = $withoutLeadingZeros;
-            if (strlen($withoutLeadingZeros) < 13) {
-                $codes[] = str_pad($withoutLeadingZeros, 13, '0', STR_PAD_LEFT);
-            }
-        }
-
-        return array_values(array_unique($codes));
+        return app(IncomingReceivedQuantityNormalizer::class)
+            ->normalize($caseQty, $pieceQty, $packQty, $janCode);
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Enums\AutoOrder\EOrderFileGenerator;
 use App\Enums\EMenu;
 use App\Enums\PaginationOptions;
 use App\Filament\Resources\WmsOrderJxSettingResource\Pages;
+use App\Filament\Support\AdminResource;
 use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderJxSetting;
 use App\Services\JX\JxClient;
@@ -20,7 +21,6 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
-use App\Filament\Support\AdminResource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
@@ -300,83 +300,6 @@ class WmsOrderJxSettingResource extends AdminResource
                                     ->danger()
                                     ->send();
                             }
-                        } catch (\Exception $e) {
-                            Notification::make()
-                                ->title('エラー')
-                                ->body($e->getMessage())
-                                ->danger()
-                                ->send();
-                        }
-                    }),
-                Action::make('receive')
-                    ->label('受信実行')
-                    ->icon('heroicon-o-arrow-down-tray')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->modalHeading('JXドキュメント受信')
-                    ->modalDescription('このJX設定でドキュメント受信を実行しますか？')
-                    ->modalSubmitActionLabel('受信開始')
-                    ->visible(fn (WmsOrderJxSetting $record) => $record->is_active)
-                    ->action(function (WmsOrderJxSetting $record) {
-                        try {
-                            // JxClientを直接使用してリクエスト/レスポンスのパスを取得
-                            $client = new JxClient($record);
-                            $result = $client->getDocument();
-
-                            $requestPath = $client->getLastRequestPath();
-                            $responsePath = $client->getLastResponsePath();
-
-                            // ダウンロードリンクを生成
-                            $requestUrl = $requestPath ? route('jx-xml-files.download', ['path' => $requestPath]) : null;
-                            $responseUrl = $responsePath ? route('jx-xml-files.download', ['path' => $responsePath]) : null;
-
-                            $body = "メッセージID: {$result->messageId}\n";
-                            $body .= 'HTTPコード: '.($result->response?->httpCode ?? 'N/A')."\n\n";
-
-                            if ($requestUrl) {
-                                $body .= "[リクエストXML]({$requestUrl})\n";
-                            }
-                            if ($responseUrl) {
-                                $body .= "[レスポンスXML]({$responseUrl})\n";
-                            }
-
-                            if ($result->failed()) {
-                                $body .= "\nエラー: {$result->error}";
-                                Notification::make()
-                                    ->title('受信失敗')
-                                    ->body($body)
-                                    ->danger()
-                                    ->send();
-
-                                return;
-                            }
-
-                            if (! $result->hasDocument()) {
-                                Notification::make()
-                                    ->title('受信完了')
-                                    ->body($body."\n受信可能なドキュメントはありません")
-                                    ->info()
-                                    ->send();
-
-                                return;
-                            }
-
-                            // ドキュメントがある場合は保存処理（本番環境）
-                            $receiver = new JxDocumentReceiver($record);
-                            $receiver->setStorageDisk('s3');
-                            $receiver->setEnvironment(WmsJxTransmissionLog::ENV_PRODUCTION);
-                            $documents = $receiver->receiveAll();
-
-                            $body .= "\n受信件数: {$documents->count()}件\n";
-                            foreach ($documents->take(5) as $doc) {
-                                $body .= "- {$doc->messageId} ({$doc->documentType})\n";
-                            }
-
-                            Notification::make()
-                                ->title('受信成功')
-                                ->body($body)
-                                ->success()
-                                ->send();
                         } catch (\Exception $e) {
                             Notification::make()
                                 ->title('エラー')

@@ -8,6 +8,7 @@ use App\Models\Wave;
 use App\Models\WaveSetting;
 use App\Models\WmsPickingItemResult;
 use App\Services\StockAllocationService;
+use App\Services\StockTransferLotAllocationService;
 use App\Services\WarehouseResolver;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -442,17 +443,12 @@ class GenerateWavesCommand extends Command
                         }
 
                         // Reserve stock for this trade item
-                        $allocationService = new StockAllocationService;
-                        $result = $allocationService->allocateForItem(
+                        $allocationService = new StockTransferLotAllocationService;
+                        $result = $allocationService->allocateForTradeItem(
                             $wave->id,
                             $warehouseId,
-                            $tradeItem->item_id,
-                            $tradeItem->quantity,
-                            $tradeItem->quantity_type ?? 'PIECE',
                             $stockTransferId,
-                            $tradeItem->id,
-                            'STOCK_TRANSFER', // source_type
-                            null // buyer_id
+                            $tradeItem
                         );
 
                         // Get primary location and real_stock from first reservation
@@ -462,6 +458,7 @@ class GenerateWavesCommand extends Command
                             ->where('item_id', $tradeItem->item_id)
                             ->where('source_id', $stockTransferId)
                             ->where('source_type', 'STOCK_TRANSFER')
+                            ->where('source_line_id', $tradeItem->id)
                             ->whereNotNull('location_id')
                             ->orderBy('qty_each', 'desc')
                             ->orderBy('id', 'asc')
@@ -738,6 +735,8 @@ class GenerateWavesCommand extends Command
             ->where('st.is_active', true)
             ->where('st_trade.is_active', true)
             ->where('st.picking_status', 'BEFORE')
+            ->where('st.is_delivered', false)
+            ->where('st.is_confirmed', false)
             ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->where('st.delivery_course_id', $deliveryCourseId)
             // 仮想倉庫間移動は対象外

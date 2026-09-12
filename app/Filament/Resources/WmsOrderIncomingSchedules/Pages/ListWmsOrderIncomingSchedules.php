@@ -667,36 +667,15 @@ class ListWmsOrderIncomingSchedules extends ListRecords
                     'confirmedByUser',
                     'confirmedByPicker',
                 ])
+                ->select('wms_order_incoming_schedules.*')
                 ->addSelect([
                     'computed_current_stock' => static::currentStockSubquery('wms_order_incoming_schedules'),
                     'computed_available_stock' => static::availableStockSubquery('wms_order_incoming_schedules'),
                     'computed_default_location' => static::defaultLocationSubquery('wms_order_incoming_schedules'),
-                    'candidate_creator_name' => DB::raw(<<<'SQL'
-                        COALESCE(
-                            (
-                                SELECT u.name
-                                FROM wms_order_candidates oc
-                                INNER JOIN wms_auto_order_job_controls job ON job.batch_code = oc.batch_code
-                                INNER JOIN users u ON u.id = job.created_by
-                                WHERE oc.id = wms_order_incoming_schedules.order_candidate_id
-                                ORDER BY job.id DESC
-                                LIMIT 1
-                            ),
-                            (
-                                SELECT u.name
-                                FROM wms_stock_transfer_candidates tc
-                                INNER JOIN wms_auto_order_job_controls job ON job.batch_code = tc.batch_code
-                                INNER JOIN users u ON u.id = job.created_by
-                                WHERE tc.id = wms_order_incoming_schedules.transfer_candidate_id
-                                ORDER BY job.id DESC
-                                LIMIT 1
-                            )
-                        )
-                    SQL),
+                    'is_eos_sent_for_table' => DB::raw(
+                        'CASE WHEN '.WmsOrderIncomingSchedule::eosSentConditionSql('wms_order_incoming_schedules').' THEN 1 ELSE 0 END'
+                    ),
                 ])
-                ->orderBy('expected_arrival_date', 'asc')
-                ->orderBy('warehouse_id')
-                ->orderBy('item_id')
             );
     }
 

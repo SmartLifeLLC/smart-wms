@@ -2,12 +2,15 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\IncomingController;
+use App\Http\Controllers\Api\IncomingV2Controller;
 use App\Http\Controllers\Api\InventoryCountController;
 use App\Http\Controllers\Api\MasterDataController;
+use App\Http\Controllers\Api\OutboundInspectionController;
 use App\Http\Controllers\Api\PickingRouteController;
 use App\Http\Controllers\Api\PickingTaskController;
 use App\Http\Controllers\Api\ProxyShipmentController;
 use App\Http\Controllers\Api\StockDisposalController;
+use App\Http\Controllers\Api\WarehouseTransferController;
 use Illuminate\Support\Facades\Route;
 
 // Internal admin helper routes
@@ -43,6 +46,7 @@ Route::middleware('api.key')->group(function () {
         Route::post('/picking/tasks/{itemResultId}/update', [PickingTaskController::class, 'updateItemResult']);
         Route::post('/picking/tasks/{itemResultId}/cancel', [PickingTaskController::class, 'cancelItemResult']);
         Route::post('/picking/tasks/{id}/complete', [PickingTaskController::class, 'complete']);
+        Route::get('/outbound-inspections/snapshot', [OutboundInspectionController::class, 'snapshot']);
 
         // Incoming (入荷) endpoints
         Route::get('/incoming/schedules', [IncomingController::class, 'index']);
@@ -54,6 +58,11 @@ Route::middleware('api.key')->group(function () {
         Route::delete('/incoming/work-items/{id}', [IncomingController::class, 'cancelWork']);
         Route::get('/incoming/locations', [IncomingController::class, 'searchLocations']);
 
+        // Incoming v2 endpoints for offline app inspection and EOS-safe history recording
+        Route::get('/v2/incoming/snapshot', [IncomingV2Controller::class, 'snapshot']);
+        Route::get('/v2/incoming/item-master', [IncomingV2Controller::class, 'itemMaster']);
+        Route::post('/v2/incoming/inspection-batches/sync', [IncomingV2Controller::class, 'sync']);
+
         // Proxy shipment (横持ち出荷) endpoints
         Route::get('/proxy-shipments', [ProxyShipmentController::class, 'index']);
         Route::get('/proxy-shipments/{id}', [ProxyShipmentController::class, 'show']);
@@ -63,12 +72,21 @@ Route::middleware('api.key')->group(function () {
 
         // Inventory count (棚卸し) endpoints
         Route::get('/wms/inventory-counts', [InventoryCountController::class, 'index']);
+        Route::get('/wms/inventory-counts/active', [InventoryCountController::class, 'active']);
         Route::get('/wms/inventory-counts/{id}', [InventoryCountController::class, 'show']);
         Route::get('/wms/inventory-counts/{id}/items', [InventoryCountController::class, 'items']);
         Route::get('/wms/inventory-counts/{id}/jan-codes', [InventoryCountController::class, 'janCodes']);
         Route::post('/wms/inventory-counts/{id}/scan', [InventoryCountController::class, 'scan']);
         Route::post('/wms/inventory-counts/{id}/counts/bulk', [InventoryCountController::class, 'bulkCount']);
+        Route::post('/wms/inventory-counts/rescue', [InventoryCountController::class, 'rescue']);
         Route::post('/wms/inventory-count-items/{itemId}/count', [InventoryCountController::class, 'count']);
         Route::get('/wms/inventory-count-items/{itemId}/logs', [InventoryCountController::class, 'logs']);
+
+        // Warehouse transfer candidates (倉庫移動候補 / HANDY) endpoints
+        Route::get('/wms/warehouse-transfer/stock-items', [WarehouseTransferController::class, 'stockItems']);
+        Route::get('/wms/warehouse-transfer/jan-codes', [WarehouseTransferController::class, 'janCodes']);
+        Route::get('/wms/warehouse-transfer/warehouses', [WarehouseTransferController::class, 'warehouses']);
+        Route::post('/wms/warehouse-transfer-candidates', [WarehouseTransferController::class, 'store']);
+        Route::get('/wms/warehouse-transfer-candidates/{id}', [WarehouseTransferController::class, 'show']);
     });
 });

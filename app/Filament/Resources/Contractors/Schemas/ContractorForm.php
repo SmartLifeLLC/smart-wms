@@ -128,7 +128,7 @@ class ContractorForm
                 ->icon('heroicon-o-paper-airplane')
                 ->afterHeader([
                     Toggle::make('wms_is_auto_transmission')
-                        ->label('自動生成')
+                        ->label('自動送信')
                         ->default(false),
                 ])
                 ->schema([
@@ -200,6 +200,64 @@ class ContractorForm
                                 ->nullable()
                                 ->helperText('指定しない場合は手動送信'),
                         ]),
+
+                    Fieldset::make('JXデータ自動生成')
+                        ->visible(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::JX_FINET->value)
+                        ->schema([
+                            Toggle::make('wms_is_jx_auto_generation_enabled')
+                                ->label('自動生成')
+                                ->default(false)
+                                ->live(),
+
+                            Grid::make(4)
+                                ->visible(fn (Get $get) => (bool) $get('wms_is_jx_auto_generation_enabled'))
+                                ->schema([
+                                    TextInput::make('wms_jx_generation_time')
+                                        ->label('生成時刻（月-土）')
+                                        ->type('time')
+                                        ->nullable()
+                                        ->helperText('通常運用: 13:30'),
+
+                                    TextInput::make('wms_jx_generation_cutoff_time')
+                                        ->label('締め時刻（月-土）')
+                                        ->type('time')
+                                        ->nullable()
+                                        ->helperText('通常運用: 13:20'),
+
+                                    TextInput::make('wms_jx_generation_sunday_time')
+                                        ->label('生成時刻（日）')
+                                        ->type('time')
+                                        ->nullable()
+                                        ->helperText('通常運用: 23:30'),
+
+                                    TextInput::make('wms_jx_generation_sunday_cutoff_time')
+                                        ->label('締め時刻（日）')
+                                        ->type('time')
+                                        ->nullable()
+                                        ->helperText('通常運用: 23:00'),
+                                ]),
+                        ])
+                        ->columns(1),
+
+                    Fieldset::make('JXデータ自動送信')
+                        ->visible(fn (Get $get) => $get('wms_transmission_type') === TransmissionType::JX_FINET->value && blank($get('wms_transmission_contractor_id')))
+                        ->schema([
+                            Grid::make(2)
+                                ->schema([
+                                    TextInput::make('wms_jx_transmission_time')
+                                        ->label('送信時刻（月-土）')
+                                        ->type('time')
+                                        ->nullable()
+                                        ->helperText('通常運用: 13:40'),
+
+                                    TextInput::make('wms_jx_transmission_sunday_time')
+                                        ->label('送信時刻（日）')
+                                        ->type('time')
+                                        ->nullable()
+                                        ->helperText('通常運用: 23:40'),
+                                ]),
+                        ])
+                        ->columns(1),
 
                     Fieldset::make('送信曜日')
                         ->visible(fn (Get $get) => blank($get('wms_transmission_contractor_id')))

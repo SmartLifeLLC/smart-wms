@@ -42,7 +42,8 @@ class StockSnapshotService
 
         try {
             $connection = DB::connection(self::CONNECTION);
-            $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            // Avoid shared next-key locks on source tables during INSERT ... SELECT.
+            $connection->statement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
             $connection->beginTransaction();
 
             try {

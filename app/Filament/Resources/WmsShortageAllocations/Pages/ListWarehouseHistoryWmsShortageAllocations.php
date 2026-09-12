@@ -30,4 +30,11 @@ class ListWarehouseHistoryWmsShortageAllocations extends ListHistoryWmsShortageA
                 ->default(),
         ];
     }
+
+    protected function getSyncWarehouseIds(): array
+    {
+        $warehouseId = auth()->user()?->getSelectedWarehouseId();
+
+        return $warehouseId ? [(int) $warehouseId] : [];
+    }
 }

@@ -28,6 +28,17 @@ class QuantityUpdateQueueService
             return null;
         }
 
+        if ($pickResult->trade?->trade_category !== QuantityUpdateQueue::TRADE_CATEGORY_EARNING) {
+            Log::warning('Cannot create quantity_update_queue: trade_category mismatch for picking correction', [
+                'pick_result_id' => $pickResult->id,
+                'source_type' => $pickResult->source_type,
+                'trade_id' => $pickResult->trade_id,
+                'actual_trade_category' => $pickResult->trade?->trade_category,
+            ]);
+
+            return null;
+        }
+
         $requestId = "picking-quantity-correction-{$pickResult->id}";
         $existing = QuantityUpdateQueue::where('request_id', $requestId)->first();
         $payload = [
@@ -157,6 +168,8 @@ class QuantityUpdateQueueService
         string $context,
         array $extraLogContext = [],
     ): QuantityUpdateQueue {
+        $this->assertTradeCategoryMatches($shortage, $tradeCategory, $requestId, $context, $extraLogContext);
+
         $existing = QuantityUpdateQueue::where('request_id', $requestId)->first();
 
         if ($existing) {
@@ -218,6 +231,34 @@ class QuantityUpdateQueueService
         ] + $extraLogContext);
 
         return $queue;
+    }
+
+    private function assertTradeCategoryMatches(
+        WmsShortage $shortage,
+        string $tradeCategory,
+        string $requestId,
+        string $context,
+        array $extraLogContext = [],
+    ): void {
+        $actualTradeCategory = $shortage->trade?->trade_category;
+
+        if ($actualTradeCategory === $tradeCategory) {
+            return;
+        }
+
+        Log::error('Cannot create quantity_update_queue: trade_category mismatch', [
+            'shortage_id' => $shortage->id,
+            'request_id' => $requestId,
+            'context' => $context,
+            'queue_trade_category' => $tradeCategory,
+            'actual_trade_category' => $actualTradeCategory,
+            'source_pick_result_id' => $shortage->source_pick_result_id,
+            'source_type' => $shortage->sourcePickResult?->source_type,
+            'trade_id' => $shortage->trade_id,
+            'trade_item_id' => $shortage->trade_item_id,
+        ] + $extraLogContext);
+
+        throw new \RuntimeException("quantity_update_queueのtrade_categoryが実伝票と一致しません: queue={$tradeCategory}, actual={$actualTradeCategory}");
     }
 
     /**

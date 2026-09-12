@@ -34,6 +34,7 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login(\App\Filament\Pages\Auth\Login::class)
+            ->favicon(asset('favicon.ico'))
             ->topNavigation() // トップナビゲーションを有効化
             ->maxContentWidth('full')
             ->breadcrumbs(false) // パンくずリストを無効化

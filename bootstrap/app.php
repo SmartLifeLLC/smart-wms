@@ -27,6 +27,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'swagger.basic' => \App\Http\Middleware\SwaggerBasicAuth::class,
         ]);
 
+        $middleware->redirectGuestsTo('/admin/login');
+
         // JXサーバーエンドポイントはCSRF検証から除外
         $middleware->validateCsrfTokens(except: [
             'jx-server',

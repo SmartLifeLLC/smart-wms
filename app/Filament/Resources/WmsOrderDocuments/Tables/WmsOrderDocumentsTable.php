@@ -4,6 +4,8 @@ namespace App\Filament\Resources\WmsOrderDocuments\Tables;
 
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
 use App\Enums\PaginationOptions;
+use App\Filament\Concerns\HasOptimizedFilters;
+use App\Models\User;
 use App\Models\WmsJxTransmissionLog;
 use App\Models\WmsOrderJxDocument;
 use App\Services\AutoOrder\OrderTransmissionService;
@@ -14,11 +16,14 @@ use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 
 class WmsOrderDocumentsTable
 {
+    use HasOptimizedFilters;
+
     /**
      * メッセージIDでXMLファイルを検索（S3）
      */
@@ -89,6 +94,13 @@ class WmsOrderDocumentsTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
+                TextColumn::make('id')
+                    ->label('ID')
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('64px')
+                    ->toggleable(),
+
                 TextColumn::make('batch_code')
                     ->label('実行CD')
                     ->sortable()
@@ -166,14 +178,32 @@ class WmsOrderDocumentsTable
                     ->sortable(),
             ])
             ->filters([
+                SelectFilter::make('created_by')
+                    ->label('作成者')
+                    ->searchable()
+                    ->options(fn (): array => static::createdByOptions())
+                    ->getSearchResultsUsing(fn (string $search): array => static::createdByOptions($search))
+                    ->default(fn () => auth()->id())
+                    ->query(function (Builder $query, array $data): void {
+                        if (blank($data['value'])) {
+                            return;
+                        }
+
+                        if ($data['value'] === '0') {
+                            $query->whereNull('created_by');
+
+                            return;
+                        }
+
+                        $query->where('created_by', (int) $data['value']);
+                    }),
+
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options(fn () => collect(TransmissionDocumentStatus::cases())
                         ->mapWithKeys(fn ($s) => [$s->value => $s->getLabel()])),
 
-                SelectFilter::make('contractor_id')
-                    ->label('発注先')
-                    ->relationship('contractor', 'name'),
+                static::contractorFilter(),
             ])
             ->recordActions([
                 Action::make('download')
@@ -339,7 +369,7 @@ class WmsOrderDocumentsTable
                         ->color('success')
                         ->requiresConfirmation()
                         ->modalHeading('選択データをJX送信')
-                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件の発注データに含まれるCSV明細だけをJX送信します。選択外の確定済みデータは送信しません。")
+                        ->modalDescription(fn (Collection $records) => "選択した {$records->count()} 件の発注データのうち、JX対象は個別に送信し、JX対象外は送信せず失敗完了にします。選択外の確定済みデータは処理しません。")
                         ->modalSubmitActionLabel('JX送信')
                         ->modalCancelActionLabel('送信せず閉じる')
                         ->action(function (Collection $records) {
@@ -360,6 +390,21 @@ class WmsOrderDocumentsTable
                                 Notification::make()
                                     ->title("JX送信完了（{$count}件）")
                                     ->success()
+                                    ->send();
+                            }
+
+                            if (! empty($result['completed'])) {
+                                $count = $result['completed_order_count'] ?? count($result['completed']);
+                                Notification::make()
+                                    ->title("JX対象外を失敗完了にしました（{$count}件）")
+                                    ->warning()
+                                    ->send();
+                            }
+
+                            if (! empty($result['skipped'])) {
+                                Notification::make()
+                                    ->title('送信中または処理済みのデータをスキップしました（'.count($result['skipped']).'件）')
+                                    ->warning()
                                     ->send();
                             }
 
@@ -453,5 +498,45 @@ class WmsOrderDocumentsTable
                 ]),
             ])
             ->defaultSort('created_at', 'desc');
+    }
+
+    private static function createdByOptions(?string $search = null): array
+    {
+        $documentTable = (new WmsOrderJxDocument)->getTable();
+        $currentUserId = auth()->id();
+
+        $query = User::query()
+            ->where(function (Builder $query) use ($documentTable, $currentUserId): void {
+                $query->whereIn('id', fn ($subQuery) => $subQuery
+                    ->select('created_by')
+                    ->from($documentTable)
+                    ->whereNotNull('created_by')
+                    ->distinct());
+
+                if ($currentUserId) {
+                    $query->orWhere($query->getModel()->getQualifiedKeyName(), $currentUserId);
+                }
+            });
+
+        if ($search) {
+            $search = mb_convert_kana($search, 'as');
+            $query->where(fn (Builder $query) => $query
+                ->where('code', 'like', "%{$search}%")
+                ->orWhere('name', 'like', "%{$search}%"));
+        }
+
+        $results = $query
+            ->limit(50)
+            ->get()
+            ->mapWithKeys(fn (User $user) => [
+                $user->id => filled($user->code) ? "[{$user->code}]{$user->name}" : $user->name,
+            ])
+            ->toArray();
+
+        if (! $search || str_contains('システム', $search)) {
+            $results = ['0' => 'システム'] + $results;
+        }
+
+        return $results;
     }
 }

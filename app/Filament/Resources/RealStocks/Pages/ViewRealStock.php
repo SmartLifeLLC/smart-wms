@@ -6,6 +6,7 @@ use App\Filament\Resources\RealStocks\RealStockResource;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\RealStockLot;
 use Filament\Resources\Pages\ViewRecord;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\DB;
 
 class ViewRealStock extends ViewRecord
@@ -42,11 +43,26 @@ class ViewRealStock extends ViewRecord
         return '在庫詳細';
     }
 
+    public function getHeading(): string|Htmlable|null
+    {
+        return null;
+    }
+
     public function getBreadcrumbs(): array
     {
+        return [];
+    }
+
+    public function getCoreStockUrl(): string
+    {
+        return rtrim((string) config('app.core_url'), '/')."/stocks/form/{$this->record->getKey()}";
+    }
+
+    public function getPageClasses(): array
+    {
         return [
-            RealStockResource::getUrl() => '在庫一覧',
-            '#' => $this->record->item?->name ?? '在庫詳細',
+            ...parent::getPageClasses(),
+            'wms-real-stock-iframe-page',
         ];
     }
 

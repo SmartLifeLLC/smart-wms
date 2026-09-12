@@ -4,13 +4,16 @@ namespace App\Services\Shortage;
 
 use App\Models\WmsPicker;
 use App\Models\WmsShortageAllocation;
+use App\Services\QuantityUpdate\AllocationSyncService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class ProxyShipmentPickingService
 {
     public function __construct(
         protected StockTransferQueueService $stockTransferQueueService,
+        protected AllocationSyncService $allocationSyncService,
     ) {}
 
     /**
@@ -24,7 +27,7 @@ class ProxyShipmentPickingService
         }
 
         if ($allocation->status !== WmsShortageAllocation::STATUS_RESERVED) {
-            abort(422, 'この横持ち出荷は開始できません（ステータス: ' . $allocation->status . '）');
+            abort(422, 'この横持ち出荷は開始できません（ステータス: '.$allocation->status.'）');
         }
 
         $allocation->update([
@@ -73,17 +76,20 @@ class ProxyShipmentPickingService
     /**
      * 横持ち出荷完了
      *
-     * @return array{allocation: WmsShortageAllocation, stock_transfer_queue_id: int|null}
+     * @return array{allocation: WmsShortageAllocation, stock_transfer_queue_id: int|null, quantity_update_queue_id: int|null}
      */
     public function complete(WmsShortageAllocation $allocation, WmsPicker $picker, ?int $pickedQty = null): array
     {
-        // べき等性: 完了済み or 欠品確定済みの再送は200を返す
-        if ($allocation->is_finished || $allocation->status === WmsShortageAllocation::STATUS_SHORTAGE) {
+        // べき等性: 完了済みの再送は200を返す
+        if ($allocation->is_finished) {
+            $freshAllocation = $allocation->fresh() ?? $allocation;
             $existingQueueId = $this->findExistingQueueId($allocation);
+            $quantityUpdateQueueId = $this->syncCompletedAllocation($freshAllocation);
 
             return [
-                'allocation' => $allocation,
+                'allocation' => $freshAllocation->fresh() ?? $freshAllocation,
                 'stock_transfer_queue_id' => $existingQueueId,
+                'quantity_update_queue_id' => $quantityUpdateQueueId,
             ];
         }
 
@@ -102,20 +108,15 @@ class ProxyShipmentPickingService
             ? WmsShortageAllocation::STATUS_FULFILLED
             : WmsShortageAllocation::STATUS_SHORTAGE;
 
-        $isFulfilled = $finalStatus === WmsShortageAllocation::STATUS_FULFILLED;
-
-        return DB::connection('sakemaru')->transaction(function () use ($allocation, $picker, $finalStatus, $finalPickedQty, $isFulfilled) {
-            // allocation 更新（欠品の場合は完了にしない → 管理画面に残す）
+        $result = DB::connection('sakemaru')->transaction(function () use ($allocation, $picker, $finalStatus, $finalPickedQty) {
+            // allocation 更新
             $updateData = [
                 'status' => $finalStatus,
                 'picked_qty' => $finalPickedQty,
+                'is_finished' => true,
+                'finished_at' => now(),
                 'finished_picker_id' => $picker->id,
             ];
-
-            if ($isFulfilled) {
-                $updateData['is_finished'] = true;
-                $updateData['finished_at'] = now();
-            }
 
             $allocation->update($updateData);
 
@@ -141,8 +142,14 @@ class ProxyShipmentPickingService
             return [
                 'allocation' => $allocation->fresh(),
                 'stock_transfer_queue_id' => $queueId,
+                'quantity_update_queue_id' => null,
             ];
         });
+
+        $result['quantity_update_queue_id'] = $this->syncCompletedAllocation($result['allocation']);
+        $result['allocation'] = $result['allocation']->fresh() ?? $result['allocation'];
+
+        return $result;
     }
 
     /**
@@ -184,5 +191,26 @@ class ProxyShipmentPickingService
             ->value('id');
 
         return $existing ? (int) $existing : null;
+    }
+
+    protected function syncCompletedAllocation(WmsShortageAllocation $allocation): ?int
+    {
+        if ($allocation->status !== WmsShortageAllocation::STATUS_SHORTAGE) {
+            return null;
+        }
+
+        try {
+            $queue = $this->allocationSyncService->syncAllocationIfReady($allocation);
+
+            return $queue?->id;
+        } catch (Throwable $e) {
+            Log::error('Failed to sync proxy shipment shortage allocation', [
+                'allocation_id' => $allocation->id,
+                'shortage_id' => $allocation->shortage_id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 }

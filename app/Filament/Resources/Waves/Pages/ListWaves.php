@@ -17,6 +17,7 @@ use App\Models\WmsPickingItemResult;
 use App\Models\WmsQueueProgress;
 use App\Services\PickingList\PickingListPdfService;
 use App\Services\StockAllocationService;
+use App\Services\StockTransferLotAllocationService;
 use App\Services\WarehouseResolver;
 use Archilex\AdvancedTables\AdvancedTables;
 use Archilex\AdvancedTables\Components\PresetView;
@@ -338,6 +339,8 @@ class ListWaves extends ListRecords
                                 ->where('st.is_active', true)
                                 ->where('st_trade.is_active', true)
                                 ->where('st.picking_status', 'BEFORE')
+                                ->where('st.is_delivered', false)
+                                ->where('st.is_confirmed', false)
                                 ->where(function ($query) {
                                     $query->where(function ($q) {
                                         $q->where('fw.is_virtual', false)
@@ -487,6 +490,8 @@ class ListWaves extends ListRecords
                                 ->where('st.is_active', true)
                                 ->where('st_trade.is_active', true)
                                 ->where('st.picking_status', 'BEFORE')
+                                ->where('st.is_delivered', false)
+                                ->where('st.is_confirmed', false)
                                 ->whereIn('st.delivery_course_id', $deliveryCourseIds)
                                 ->where(function ($query) {
                                     $query->where(function ($q) {
@@ -708,6 +713,7 @@ class ListWaves extends ListRecords
         int $userId
     ): WaveGroup {
         $conditions = $data;
+        $conditions['include_past'] = (bool) ($data['include_past'] ?? false);
         $conditions['shipping_dates'] = $this->getShippingDatesFromData($data);
         $conditions['target_document_types'] = $targetDocumentTypes;
 
@@ -2215,17 +2221,12 @@ class ListWaves extends ListRecords
                 continue;
             }
 
-            $allocationService = new StockAllocationService;
-            $result = $allocationService->allocateForItem(
+            $allocationService = new StockTransferLotAllocationService;
+            $result = $allocationService->allocateForTradeItem(
                 $wave->id,
                 $waveSetting->warehouse_id,
-                $tradeItem->item_id,
-                $tradeItem->quantity,
-                $tradeItem->quantity_type ?? 'PIECE',
                 $stockTransferId,
-                $tradeItem->id,
-                'STOCK_TRANSFER',
-                null
+                $tradeItem
             );
 
             $primaryReservation = DB::connection('sakemaru')
@@ -2234,6 +2235,7 @@ class ListWaves extends ListRecords
                 ->where('item_id', $tradeItem->item_id)
                 ->where('source_id', $stockTransferId)
                 ->where('source_type', 'STOCK_TRANSFER')
+                ->where('source_line_id', $tradeItem->id)
                 ->whereNotNull('location_id')
                 ->orderBy('qty_each', 'desc')
                 ->orderBy('id', 'asc')
@@ -2369,6 +2371,8 @@ class ListWaves extends ListRecords
             ->where('st.is_active', true)
             ->where('st_trade.is_active', true)
             ->where('st.picking_status', 'BEFORE')
+            ->where('st.is_delivered', false)
+            ->where('st.is_confirmed', false)
             ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->whereIn('dc.warehouse_id', $warehouseIds)
             ->whereNotNull('st.delivery_course_id')

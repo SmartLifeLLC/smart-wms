@@ -4,6 +4,7 @@ namespace App\Filament\Resources\WmsIncomingReceivedData\Pages;
 
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsIncomingReceivedData\WmsIncomingReceivedDataResource;
+use App\Models\WmsIncomingReceivedFile;
 use App\Services\AutoOrder\IncomingParsers\ActCsvIncomingParser;
 use App\Services\AutoOrder\IncomingReceiveService;
 use Archilex\AdvancedTables\AdvancedTables;
@@ -12,8 +13,8 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Radio;
 use Filament\Notifications\Notification;
-use Filament\Support\Enums\Alignment;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Support\Enums\Alignment;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -177,19 +178,24 @@ class ListWmsIncomingReceivedData extends ListRecords
                 ->default(),
 
             'pending' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'PENDING'))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', WmsIncomingReceivedFile::STATUS_PENDING))
                 ->favorite()
                 ->label('未照合'),
 
             'matched' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'MATCHED'))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', WmsIncomingReceivedFile::STATUS_MATCHED))
                 ->favorite()
                 ->label('照合済み'),
 
             'applied' => PresetView::make()
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'APPLIED'))
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', WmsIncomingReceivedFile::STATUS_APPLIED))
                 ->favorite()
                 ->label('適用済み'),
+
+            'skipped' => PresetView::make()
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', WmsIncomingReceivedFile::STATUS_SKIPPED))
+                ->favorite()
+                ->label('対象外'),
         ];
     }
 }

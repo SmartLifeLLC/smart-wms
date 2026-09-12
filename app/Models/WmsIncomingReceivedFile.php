@@ -9,6 +9,21 @@ class WmsIncomingReceivedFile extends WmsModel
 {
     protected $table = 'wms_incoming_received_files';
 
+    public const STATUS_PENDING = 'PENDING';
+
+    public const STATUS_MATCHED = 'MATCHED';
+
+    public const STATUS_APPLIED = 'APPLIED';
+
+    public const STATUS_ERROR = 'ERROR';
+
+    public const STATUS_SKIPPED = 'SKIPPED';
+
+    public const TERMINAL_STATUSES = [
+        self::STATUS_APPLIED,
+        self::STATUS_SKIPPED,
+    ];
+
     protected $fillable = [
         'contractor_id',
         'filename',
@@ -78,5 +93,15 @@ class WmsIncomingReceivedFile extends WmsModel
     public function contractor()
     {
         return $this->belongsTo(\App\Models\Sakemaru\Contractor::class);
+    }
+
+    public function isWorkflowTerminal(): bool
+    {
+        return in_array((string) $this->status, self::TERMINAL_STATUSES, true);
+    }
+
+    public function isSkipped(): bool
+    {
+        return (string) $this->status === self::STATUS_SKIPPED;
     }
 }

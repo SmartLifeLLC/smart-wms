@@ -6,6 +6,7 @@ use App\Models\Sakemaru\Contractor;
 use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use Illuminate\Support\Collection;
+use Tests\Support\FakeLegacyEosSlipNumberService;
 use Tests\TestCase;
 
 /**
@@ -33,7 +34,7 @@ class HanaOrderFileSampleValidationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->generator = new HanaOrderJXFileGenerator;
+        $this->generator = new HanaOrderJXFileGenerator(new FakeLegacyEosSlipNumberService);
     }
 
     /**

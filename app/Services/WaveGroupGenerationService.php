@@ -20,6 +20,30 @@ class WaveGroupGenerationService
     /**
      * @return array{wave_ids: array<int>, earning_count: int, stock_transfer_count: int, picking_lists: array<string, array<string, mixed>>, timings_ms: array<string, int>}
      */
+    /**
+     * 波動生成の前段でロット調節を実行する。
+     *
+     * 【最重要】調節の成否・例外は波動生成に一切影響させない。
+     * - LotAdjustmentRunner::runForWaveGeneration() は内部で全例外を握りつぶし、失敗を
+     *   ロット調節履歴（wms_lot_adjustment_logs）に残す。
+     * - 念のためここでも Throwable を握りつぶし、波動生成を必ず継続する。
+     * - 調節は独立したトランザクションで完結しており、波動生成と DB トランザクションを共有しない。
+     */
+    private function runPreWaveLotAdjustment(int $warehouseId): void
+    {
+        try {
+            app(\App\Services\LotAdjustment\LotAdjustmentRunner::class)
+                ->runForWaveGeneration($warehouseId);
+        } catch (\Throwable $e) {
+            // 二重の安全網: ここで握りつぶし、波動生成は継続する
+            Log::error('[LOT_ADJUSTMENT] pre-wave lot adjustment failed; wave generation continues', [
+                'warehouse_id' => $warehouseId,
+                'error' => $e->getMessage(),
+                'error_class' => $e::class,
+            ]);
+        }
+    }
+
     public function generate(WaveGroup $waveGroup, int $userId, ?WmsQueueProgress $progress = null): array
     {
         ini_set('memory_limit', '1024M');
@@ -35,14 +59,13 @@ class WaveGroupGenerationService
         $data['generation_type'] = $waveGroup->generation_type;
         $data['target_document_types'] = $waveGroup->target_document_types ?? ['shipment', 'transfer'];
 
-        $progress?->markAsProcessing(100, '在庫同期を開始しています');
+        // 波動生成の前にロット調節を実行する。
+        // 【最重要】調節が失敗・例外・部分適用になっても波動生成には一切影響させない。
+        // runForWaveGeneration は例外を投げない設計だが、二重の安全網としてここでも握りつぶす。
+        $this->runPreWaveLotAdjustment((int) $waveGroup->warehouse_id);
 
         $phaseStartedAt = microtime(true);
-        $stockSyncResult = app(Warehouse91StockLotSyncService::class)->sync([], false);
-        $timings['stock_sync'] = $this->elapsedMilliseconds($phaseStartedAt);
-
-        $phaseStartedAt = microtime(true);
-        $progress?->updateProgress(10, '在庫同期が完了しました。波動生成を開始しています');
+        $progress?->markAsProcessing(100, '波動生成を開始しています');
         $generationResult = $this->createWavesFromCourses($data, $waveGroup, $userId);
         $timings['wave_generation'] = $this->elapsedMilliseconds($phaseStartedAt);
 
@@ -58,7 +81,10 @@ class WaveGroupGenerationService
 
         $result = [
             ...$generationResult,
-            'stock_sync' => $stockSyncResult,
+            'stock_sync' => [
+                'skipped' => true,
+                'reason' => 'automatic stock lot sync is disabled for wave generation',
+            ],
             'picking_lists' => $pickingLists,
             'timings_ms' => $timings,
             'started_at' => now()->toDateTimeString(),
@@ -155,7 +181,7 @@ class WaveGroupGenerationService
         $generationType = $data['generation_type'] ?? 'delivery_course';
         $deliveryCourseIds = $data['delivery_course_ids'] ?? [];
         $buyerIds = $data['buyer_ids'] ?? [];
-        $includePast = $data['include_past'] ?? true;
+        $includePast = (bool) ($data['include_past'] ?? false);
         $targetDocumentTypes = $this->normalizeTargetDocumentTypes($data['target_document_types'] ?? null);
 
         if (empty($shippingDates)) {
@@ -573,7 +599,7 @@ class WaveGroupGenerationService
             ->select('trade_items.*')
             ->get();
 
-        $allocationService = new StockAllocationService;
+        $allocationService = new StockTransferLotAllocationService;
         $locationCache = [];
         $itemLocationCache = [];
         $defaultAreaCache = [];
@@ -584,16 +610,11 @@ class WaveGroupGenerationService
                 continue;
             }
 
-            $result = $allocationService->allocateForItem(
+            $result = $allocationService->allocateForTradeItem(
                 $wave->id,
                 $waveSetting->warehouse_id,
-                $tradeItem->item_id,
-                $tradeItem->quantity,
-                $tradeItem->quantity_type ?? 'PIECE',
                 $stockTransferId,
-                $tradeItem->id,
-                'STOCK_TRANSFER',
-                null
+                $tradeItem
             );
 
             $primaryReservation = DB::connection('sakemaru')
@@ -602,6 +623,7 @@ class WaveGroupGenerationService
                 ->where('item_id', $tradeItem->item_id)
                 ->where('source_id', $stockTransferId)
                 ->where('source_type', 'STOCK_TRANSFER')
+                ->where('source_line_id', $tradeItem->id)
                 ->whereNotNull('location_id')
                 ->orderBy('qty_each', 'desc')
                 ->orderBy('id', 'asc')
@@ -745,6 +767,8 @@ class WaveGroupGenerationService
             ->where('st.is_active', true)
             ->where('st_trade.is_active', true)
             ->where('st.picking_status', 'BEFORE')
+            ->where('st.is_delivered', false)
+            ->where('st.is_confirmed', false)
             ->whereIn('st.from_warehouse_id', $warehouseIds)
             ->whereIn('dc.warehouse_id', $warehouseIds)
             ->whereNotNull('st.delivery_course_id')

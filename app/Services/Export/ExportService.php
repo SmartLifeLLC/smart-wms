@@ -7,6 +7,7 @@ use App\Enums\ExportStatus;
 use App\Jobs\ProcessExportJob;
 use App\Models\WmsExportLog;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Enumerable;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Csv as CsvWriter;
@@ -218,15 +219,56 @@ class ExportService
      */
     private function resolveColumnValue(mixed $record, string $dbColumn): mixed
     {
-        // ドット記法でリレーションを辿る（例: 'warehouse.name'）
-        $parts = explode('.', $dbColumn);
-        $value = $record;
+        $value = $this->resolvePathValue($record, explode('.', $dbColumn));
 
-        foreach ($parts as $part) {
+        return $this->formatValueForExport($value);
+    }
+
+    /**
+     * ドット記法でリレーションを辿る（例: 'warehouse.name', 'activeLots.expiration_date'）
+     */
+    private function resolvePathValue(mixed $value, array $parts): mixed
+    {
+        foreach ($parts as $index => $part) {
             if ($value === null) {
-                return '';
+                return null;
             }
+
+            if ($value instanceof Enumerable) {
+                $remainingParts = array_slice($parts, $index);
+
+                return $value
+                    ->map(fn (mixed $item): mixed => $this->resolvePathValue($item, $remainingParts))
+                    ->filter(fn (mixed $item): bool => $this->hasExportValue($item))
+                    ->values();
+            }
+
+            if (is_array($value)) {
+                $value = $value[$part] ?? null;
+
+                continue;
+            }
+
             $value = $value->{$part} ?? null;
+        }
+
+        return $value;
+    }
+
+    private function formatValueForExport(mixed $value): mixed
+    {
+        if ($value instanceof Enumerable) {
+            return $value
+                ->map(fn (mixed $item): mixed => $this->formatValueForExport($item))
+                ->filter(fn (mixed $item): bool => $this->hasExportValue($item))
+                ->implode("\n");
+        }
+
+        if (is_array($value)) {
+            return collect($value)
+                ->map(fn (mixed $item): mixed => $this->formatValueForExport($item))
+                ->filter(fn (mixed $item): bool => $this->hasExportValue($item))
+                ->implode("\n");
         }
 
         // Enum値はラベルに変換
@@ -235,11 +277,16 @@ class ExportService
         }
 
         // Carbon日付はフォーマット
-        if ($value instanceof \Carbon\Carbon) {
+        if ($value instanceof \DateTimeInterface) {
             return $value->format('Y-m-d H:i:s');
         }
 
         return $value ?? '';
+    }
+
+    private function hasExportValue(mixed $value): bool
+    {
+        return $value !== null && $value !== '';
     }
 
     /**

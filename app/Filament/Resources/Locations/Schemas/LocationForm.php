@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Locations\Schemas;
 
 use App\Enums\TemperatureType;
+use App\Models\Sakemaru\Floor;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -22,13 +23,33 @@ class LocationForm
                             ->label('倉庫')
                             ->required()
                             ->searchable()
+                            ->live()
                             ->options(function () {
                                 return Warehouse::query()
                                     ->orderBy('name')
                                     ->pluck('name', 'id');
                             })
+                            ->afterStateUpdated(fn (callable $set) => $set('floor_id', null))
                             ->helperText('このロケーションが属する倉庫')
-                            ->columnSpan(2),
+                            ->columnSpan(1),
+
+                        Select::make('floor_id')
+                            ->label('フロア')
+                            ->required()
+                            ->searchable()
+                            ->options(function (callable $get) {
+                                $warehouseId = $get('warehouse_id');
+                                if (! $warehouseId) {
+                                    return [];
+                                }
+
+                                return Floor::query()
+                                    ->where('warehouse_id', $warehouseId)
+                                    ->orderBy('name')
+                                    ->pluck('name', 'id');
+                            })
+                            ->helperText('ピッキングリストのグループ化に使用')
+                            ->columnSpan(1),
 
                         TextInput::make('name')
                             ->label('ロケーション名')
@@ -84,6 +105,7 @@ class LocationForm
                             ->default(false)
                             ->inline(false)
                             ->columnSpan(1),
+
                     ])
                     ->columns(2)
                     ->collapsible(),

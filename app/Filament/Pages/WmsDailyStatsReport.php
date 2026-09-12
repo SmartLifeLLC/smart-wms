@@ -101,8 +101,8 @@ class WmsDailyStatsReport extends AdminPage
         $warehouseIds = $this->selectedWarehouseIds($this->appliedWarehouseId);
         $statsService = app(WmsStatsService::class);
 
-        $summary = $statsService->summarize($date, $warehouseIds);
-        $compareSummary = $statsService->summarize($compareDate, $warehouseIds);
+        $summary = $statsService->summarizeStored($date, $warehouseIds);
+        $compareSummary = $statsService->summarizeStored($compareDate, $warehouseIds);
 
         return [
             'warehouses' => $this->warehouseOptions(),
@@ -262,8 +262,8 @@ class WmsDailyStatsReport extends AdminPage
 
         return $warehouses
             ->map(function (Warehouse $warehouse) use ($date, $compareDate, $statsService) {
-                $current = $statsService->summarize($date, [(int) $warehouse->id]);
-                $compare = $statsService->summarize($compareDate, [(int) $warehouse->id]);
+                $current = $statsService->summarizeStored($date, [(int) $warehouse->id]);
+                $compare = $statsService->summarizeStored($compareDate, [(int) $warehouse->id]);
 
                 return [
                     'warehouse' => '['.$warehouse->code.'] '.$warehouse->name,

@@ -6,7 +6,9 @@ use App\Contracts\OrderFileGeneratorInterface;
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\EOrderFileGenerator;
 use App\Enums\AutoOrder\TransmissionDocumentStatus;
+use App\Enums\AutoOrder\TransmissionDocumentType;
 use App\Enums\EWMSClient;
+use App\Enums\QuantityType;
 use App\Models\Sakemaru\Contractor;
 use App\Models\User;
 use App\Models\WmsOrderCandidate;
@@ -163,6 +165,111 @@ class OrderTransmissionServiceTest extends TestCase
         $this->assertTrue($result['success']);
         $this->assertEmpty($result['transmitted']);
         $this->assertArrayHasKey('message', $result);
+    }
+
+    /**
+     * @test
+     * JX生成対象がない場合も選択数と除外数を返すこと
+     */
+    public function it_reports_counts_when_selected_candidates_are_not_eligible_for_jx_generation(): void
+    {
+        $result = $this->service->generateJxFilesForCandidateIds([-999999991, -999999992]);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame(2, $result['selected_count']);
+        $this->assertSame(0, $result['eligible_count']);
+        $this->assertSame(0, $result['jx_target_count']);
+        $this->assertSame(2, $result['excluded_count']);
+        $this->assertSame(2, $result['excluded_missing']);
+        $this->assertSame(0, $result['excluded_not_confirmed']);
+        $this->assertSame(0, $result['excluded_already_generated']);
+        $this->assertSame(0, $result['excluded_not_jx_target']);
+        $this->assertSame(0, $result['excluded_missing_ordering_code']);
+        $this->assertSame(0, $result['skipped_count']);
+    }
+
+    /**
+     * @test
+     * JX発注CDを解決できない発注候補は生成対象から除外されること
+     */
+    public function it_excludes_candidates_without_resolvable_jx_ordering_code_before_generation(): void
+    {
+        $candidate = (new WmsOrderCandidate)->forceFill([
+            'id' => 999999991,
+            'ordering_code' => null,
+            'order_quantity' => 1,
+            'quantity_type' => 'CASE',
+        ]);
+        $candidate->setRelation('item', null);
+
+        $method = new \ReflectionMethod(OrderTransmissionService::class, 'filterCandidatesWithJxOrderingCode');
+        $method->setAccessible(true);
+
+        [$filtered, $excludedCount] = $method->invoke($this->service, collect([$candidate]));
+
+        $this->assertCount(0, $filtered);
+        $this->assertSame(1, $excludedCount);
+    }
+
+    /**
+     * @test
+     * JX送信対象外の発注先は手動JXファイル生成の対象から除外されること
+     */
+    public function it_excludes_non_jx_target_contractors_from_selected_jx_file_generation(): void
+    {
+        $candidate = WmsOrderCandidate::create([
+            'batch_code' => 'TJXEXCL0000000001',
+            'warehouse_id' => 999999991,
+            'item_id' => 999999991,
+            'item_code' => 'TEST-JX-EXCL',
+            'contractor_id' => 999999991,
+            'suggested_quantity' => 1,
+            'order_quantity' => 1,
+            'purchase_unit' => 1,
+            'quantity_type' => 'CASE',
+            'status' => CandidateStatus::CONFIRMED,
+            'lot_status' => 'RAW',
+            'modified_at' => now(),
+        ]);
+
+        try {
+            $result = $this->service->generateJxFilesForCandidateIds([$candidate->id]);
+
+            $this->assertFalse($result['success']);
+            $this->assertSame(1, $result['selected_count']);
+            $this->assertSame(0, $result['eligible_count']);
+            $this->assertSame(0, $result['jx_target_count']);
+            $this->assertSame(1, $result['excluded_count']);
+            $this->assertSame(1, $result['excluded_not_jx_target']);
+            $this->assertSame(0, $result['excluded_missing_ordering_code']);
+            $this->assertSame(0, $result['total_orders']);
+            $this->assertSame([], $result['files']);
+            $this->assertStringContainsString('JX送信対象外', $result['errors'][0] ?? '');
+            $this->assertDatabaseMissing('wms_order_jx_documents', [
+                'batch_code' => 'TJXEXCL0000000001',
+            ], 'sakemaru');
+        } finally {
+            $candidate->delete();
+        }
+    }
+
+    /**
+     * @test
+     * JXファイルに実出力された候補IDだけを抽出できること
+     */
+    public function it_extracts_generated_candidate_ids_from_slip_assignments(): void
+    {
+        $method = new \ReflectionMethod(OrderTransmissionService::class, 'generatedCandidateIdsForFile');
+        $method->setAccessible(true);
+
+        $ids = $method->invoke($this->service, [
+            'slip_assignments' => [
+                ['order_candidate_ids' => [10, '11', 10]],
+                ['order_candidate_ids' => [12, null, 0]],
+            ],
+        ]);
+
+        $this->assertSame([10, 11, 12], $ids->all());
     }
 
     /**
@@ -375,19 +482,49 @@ class OrderTransmissionServiceTest extends TestCase
      */
     public function it_can_link_candidates_to_documents(): void
     {
-        // ドキュメントに紐付いている発注候補を確認
-        $linkedCandidates = WmsOrderCandidate::whereNotNull('wms_order_jx_document_id')
-            ->limit(5)
-            ->get();
+        $batchCode = 'TLINK'.now()->format('His').random_int(100, 999);
+        $document = WmsOrderJxDocument::query()->create([
+            'batch_code' => $batchCode,
+            'warehouse_id' => 999999991,
+            'contractor_id' => 999999991,
+            'order_date' => '2026-08-04',
+            'expected_arrival_date' => '2026-08-05',
+            'document_type' => TransmissionDocumentType::PURCHASE->value,
+            'status' => TransmissionDocumentStatus::PENDING->value,
+            'file_path' => 'tests/jx-orders/link-test.dat',
+            'file_size' => 128,
+            'record_count' => 1,
+            'order_count' => 1,
+            'encoding' => 'SJIS-win',
+        ]);
+        $candidate = WmsOrderCandidate::query()->create([
+            'batch_code' => $batchCode,
+            'warehouse_id' => 999999991,
+            'item_id' => 999999991,
+            'item_code' => 'TEST-LINK',
+            'contractor_id' => 999999991,
+            'suggested_quantity' => 1,
+            'order_quantity' => 1,
+            'purchase_unit' => 1,
+            'quantity_type' => QuantityType::CASE->value,
+            'expected_arrival_date' => '2026-08-05',
+            'status' => CandidateStatus::CONFIRMED->value,
+            'lot_status' => 'RAW',
+            'wms_order_jx_document_id' => $document->id,
+            'modified_at' => now(),
+        ]);
 
-        // 紐付いた候補がなくてもテストは成功
-        $this->assertGreaterThanOrEqual(0, $linkedCandidates->count());
+        try {
+            $linkedCandidate = WmsOrderCandidate::with('jxDocument')->find($candidate->id);
 
-        foreach ($linkedCandidates as $candidate) {
-            $document = WmsOrderJxDocument::find($candidate->wms_order_jx_document_id);
-            if ($document) {
-                $this->assertEquals($candidate->batch_code, $document->batch_code);
-            }
+            $this->assertNotNull($linkedCandidate);
+            $this->assertNotNull($linkedCandidate->jxDocument);
+            $this->assertSame($document->id, $linkedCandidate->jxDocument->id);
+            $this->assertSame($batchCode, $linkedCandidate->batch_code);
+            $this->assertSame($batchCode, $linkedCandidate->jxDocument->batch_code);
+        } finally {
+            $candidate->delete();
+            $document->delete();
         }
     }
 

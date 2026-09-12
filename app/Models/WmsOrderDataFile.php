@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AutoOrder\OrderDataFileChannel;
 use App\Enums\AutoOrder\OrderDataFileStatus;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Warehouse;
@@ -24,6 +25,8 @@ class WmsOrderDataFile extends WmsModel
         'warehouse_id',
         'contractor_id',
         'candidate_ids',
+        'order_channel',
+        'show_eos_stamp',
         'order_date',
         'expected_arrival_date',
         'file_path',
@@ -50,7 +53,9 @@ class WmsOrderDataFile extends WmsModel
         'fax_downloaded_at' => 'datetime',
         'mail_sent_at' => 'datetime',
         'is_mail_order' => 'boolean',
+        'show_eos_stamp' => 'boolean',
         'status' => OrderDataFileStatus::class,
+        'order_channel' => OrderDataFileChannel::class,
         'candidate_ids' => 'array',
     ];
 
@@ -133,11 +138,24 @@ class WmsOrderDataFile extends WmsModel
      */
     public function markAsFaxDownloaded(int $userId): void
     {
+        if ($this->isEosControlPdf()) {
+            return;
+        }
+
         $this->update([
             'status' => OrderDataFileStatus::DOWNLOADED,
             'fax_downloaded_at' => now(),
             'fax_downloaded_by' => $userId,
         ]);
+    }
+
+    public function isEosControlPdf(): bool
+    {
+        $channel = $this->order_channel instanceof OrderDataFileChannel
+            ? $this->order_channel
+            : OrderDataFileChannel::tryFrom((string) $this->order_channel);
+
+        return $channel === OrderDataFileChannel::EOS || (bool) $this->show_eos_stamp;
     }
 
     /**

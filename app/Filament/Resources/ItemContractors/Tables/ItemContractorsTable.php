@@ -76,6 +76,12 @@ class ItemContractorsTable
                     ->label('仕入先名')
                     ->sortable(),
 
+                TextColumn::make('note')
+                    ->label('備考')
+                    ->limit(40)
+                    ->tooltip(fn (?string $state): ?string => filled($state) ? $state : null)
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextInputColumn::make('safety_stock')
                     ->label('発注点')
                     ->type('number')

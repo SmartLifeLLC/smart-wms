@@ -58,6 +58,16 @@ class StockTransferQueueService
         // 最終配送先を実倉庫ベースで判定
         $toWarehouseCode = $this->determineToWarehouse($shortage, $sourceWarehouse);
 
+        if ((string) $targetWarehouse->code === (string) $toWarehouseCode) {
+            Log::info('No stock transfer queue created (same from/to warehouse)', [
+                'allocation_id' => $allocation->id,
+                'warehouse_code' => $targetWarehouse->code,
+                'picked_qty' => $allocation->picked_qty,
+            ]);
+
+            return null;
+        }
+
         // items配列を作成
         $items = [
             [
@@ -109,6 +119,7 @@ class StockTransferQueueService
                 'to_warehouse_code' => $toWarehouseCode,         // 実倉庫ベースで判定
                 'request_id' => $requestId,
                 'status' => 'BEFORE',
+                'action_type' => 'CREATE',
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);

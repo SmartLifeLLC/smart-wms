@@ -7,6 +7,7 @@ use App\Models\WmsOrderCandidate;
 use App\Services\AutoOrder\Generators\HanaOrderJXFileGenerator;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Tests\Support\FakeLegacyEosSlipNumberService;
 use Tests\TestCase;
 
 /**
@@ -34,7 +35,7 @@ class HanaOrderFileFieldComparisonTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->generator = new HanaOrderJXFileGenerator;
+        $this->generator = new HanaOrderJXFileGenerator(new FakeLegacyEosSlipNumberService);
     }
 
     /**

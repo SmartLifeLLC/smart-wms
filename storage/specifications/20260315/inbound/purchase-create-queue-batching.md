@@ -40,8 +40,9 @@ INSERT INTO purchase_create_queue (request_uuid, delivered_date, items, status, 
 ```sql
 -- 正しい！1つの伝票に3明細が含まれる
 
-INSERT INTO purchase_create_queue (request_uuid, delivered_date, items, status, retry_count, created_at, updated_at) VALUES (
+INSERT INTO purchase_create_queue (request_uuid, slip_number, delivered_date, items, status, retry_count, created_at, updated_at) VALUES (
     'uuid-batch-001',
+    '91461018629',
     '2026-01-17',
     '{
         "process_date": "2026-01-17",
@@ -49,6 +50,7 @@ INSERT INTO purchase_create_queue (request_uuid, delivered_date, items, status, 
         "account_date": "2026-01-17",
         "supplier_code": "001",
         "warehouse_code": "10",
+        "slip_number": "91461018629",
         "details": [
             {"item_code": "10001", "quantity": 10, "quantity_type": "PIECE", "expiration_date": "2026-03-15"},
             {"item_code": "10002", "quantity": 5, "quantity_type": "CASE", "expiration_date": "2026-04-20"},
@@ -70,9 +72,12 @@ INSERT INTO purchase_create_queue (request_uuid, delivered_date, items, status, 
 |------|------|
 | `warehouse_code` | 倉庫コード |
 | `supplier_code` | 仕入先コード |
+| `slip_number` | 入荷/EOS伝票番号 |
 | `delivered_date` | 入荷日 |
 | `process_date` | 処理日 |
 | `account_date` | 買掛日 |
+
+分納で同じ `slip_number` の納品が複数日に分かれる場合、`delivered_date` が異なるため別レコードとして登録し、仕入伝票も複数生成します。
 
 ## WMS側の実装例（擬似コード）
 
@@ -82,9 +87,9 @@ INSERT INTO purchase_create_queue (request_uuid, delivered_date, items, status, 
 // 入荷データを取得
 $receivingItems = ReceivingItem::where('status', 'pending')->get();
 
-// グルーピング: 倉庫 + 仕入先 + 入荷日
+// グルーピング: 倉庫 + 仕入先 + 伝票番号 + 入荷日
 $grouped = $receivingItems->groupBy(function ($item) {
-    return $item->warehouse_code . '_' . $item->supplier_code . '_' . $item->delivered_date;
+    return $item->warehouse_code . '_' . $item->supplier_code . '_' . $item->slip_number . '_' . $item->delivered_date;
 });
 
 // グループごとに1レコードをINSERT
@@ -102,6 +107,7 @@ foreach ($grouped as $key => $items) {
 
     DB::table('purchase_create_queue')->insert([
         'request_uuid' => Str::uuid()->toString(),
+        'slip_number' => $first->slip_number,
         'delivered_date' => $first->delivered_date,
         'items' => json_encode([
             'process_date' => $first->delivered_date,
@@ -109,6 +115,7 @@ foreach ($grouped as $key => $items) {
             'account_date' => $first->delivered_date,
             'supplier_code' => $first->supplier_code,
             'warehouse_code' => $first->warehouse_code,
+            'slip_number' => $first->slip_number,
             'details' => $details,
         ]),
         'status' => 'BEFORE',
@@ -127,6 +134,7 @@ CREATE TEMPORARY TABLE tmp_purchase_groups AS
 SELECT
     warehouse_code,
     supplier_code,
+    slip_number,
     delivered_date,
     GROUP_CONCAT(
         JSON_OBJECT(
@@ -137,12 +145,13 @@ SELECT
         )
     ) as details_json
 FROM pending_receiving_items
-GROUP BY warehouse_code, supplier_code, delivered_date;
+GROUP BY warehouse_code, supplier_code, slip_number, delivered_date;
 
 -- 2. グループごとにINSERT
-INSERT INTO purchase_create_queue (request_uuid, delivered_date, items, status, retry_count, created_at, updated_at)
+INSERT INTO purchase_create_queue (request_uuid, slip_number, delivered_date, items, status, retry_count, created_at, updated_at)
 SELECT
     UUID(),
+    slip_number,
     delivered_date,
     JSON_OBJECT(
         'process_date', delivered_date,
@@ -150,6 +159,7 @@ SELECT
         'account_date', delivered_date,
         'supplier_code', supplier_code,
         'warehouse_code', warehouse_code,
+        'slip_number', slip_number,
         'details', JSON_ARRAY(details_json)  -- 注意: 実際はJSONパースが必要
     ),
     'BEFORE',
@@ -191,6 +201,8 @@ purchase_create_queue レコード (details: 3件)
 
 この場合、仕入先Aの伝票と仕入先Bの伝票の2枚が生成されます。
 
+EOS受信データから仕入キューを作る場合、誤った仕入先で仕入伝票を生成しないため、`supplier_code` は省略しません。WMS側で仕入先を確定できない入荷予定はキュー登録対象外として扱います。
+
 ### 1伝票あたりの明細数上限
 
 推奨: 1伝票あたり **100明細以下**
@@ -199,7 +211,8 @@ purchase_create_queue レコード (details: 3件)
 
 ## チェックリスト
 
-- [ ] 同一倉庫・仕入先・入荷日の明細を1レコードにまとめている
+- [ ] 同一倉庫・仕入先・伝票番号・入荷日の明細を1レコードにまとめている
+- [ ] `slip_number` を `purchase_create_queue.slip_number` と `items.slip_number` の両方に設定している
 - [ ] `details` 配列に複数の明細が含まれている
 - [ ] `request_uuid` はレコードごとに一意の値を設定している
 - [ ] JSON形式が正しい（特に配列のカンマ、括弧）

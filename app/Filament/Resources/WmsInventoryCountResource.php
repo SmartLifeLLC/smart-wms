@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\WmsInventoryCount\Pages\ListWmsInventoryCounts;
 use App\Filament\Resources\WmsInventoryCount\Pages\ViewWmsInventoryCount;
+use App\Filament\Resources\WmsInventoryCount\Pages\ViewWmsInventoryCountLogs;
 use App\Filament\Resources\WmsInventoryCount\Tables\WmsInventoryCountTable;
 use App\Filament\Support\AdminResource;
 use App\Models\WmsInventoryCount;
@@ -60,6 +61,7 @@ class WmsInventoryCountResource extends AdminResource
         return [
             'index' => ListWmsInventoryCounts::route('/'),
             'view' => ViewWmsInventoryCount::route('/{record}'),
+            'logs' => ViewWmsInventoryCountLogs::route('/{record}/logs'),
         ];
     }
 }

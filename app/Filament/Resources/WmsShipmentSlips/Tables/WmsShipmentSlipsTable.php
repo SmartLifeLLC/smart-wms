@@ -10,21 +10,30 @@ use App\Models\Sakemaru\ClientPrinterDriver;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\DeliveryCourse;
 use App\Models\Sakemaru\Warehouse;
+use App\Models\SpecificSlipPrintRequestQueue;
 use App\Models\WmsPickingItemResult;
 use App\Models\WmsPickingTask;
 use App\Models\WmsShortage;
 use App\Services\Print\PrintRequestService;
+use App\Services\Print\SpecificSlipPrintQueueService;
+use App\Services\Print\SpecificSlipPrintTargetService;
 use App\Services\QuantityUpdate\QuantityUpdateQueueService;
 use App\Services\Shortage\ShortageApprovalService;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\ViewField;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Actions as SchemaActions;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Support\Enums\Alignment;
+use Filament\Support\Enums\Size;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\SelectFilter;
@@ -47,20 +56,16 @@ class WmsShipmentSlipsTable
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
+                TextColumn::make('id')
+                    ->label('ID')
+                    ->sortable(),
+
                 TextColumn::make('sync_status')
                     ->label('在庫同期')
                     ->badge()
                     ->state(fn ($record) => $record->is_stock_synced ? '同期済' : '同期中')
                     ->color(fn ($record) => $record->is_stock_synced ? 'success' : 'warning')
                     ->icon(fn ($record) => $record->is_stock_synced ? 'heroicon-o-check-circle' : 'heroicon-o-arrow-path')
-                    ->alignCenter(),
-
-                TextColumn::make('dedicated_slip')
-                    ->label('専用伝票')
-                    ->badge()
-                    ->state(fn ($record) => $record->has_dedicated_slip ? '専用伝票' : null)
-                    ->color('info')
-                    ->placeholder('-')
                     ->alignCenter(),
 
                 TextColumn::make('delivery_course_code')
@@ -382,6 +387,7 @@ class WmsShipmentSlipsTable
                     })
                     ->action(function (WmsPickingTask $record, array $data) {
                         $shipmentDate = $record->shipment_date;
+                        $isShipmentConfirmationPrint = static::isShipmentConfirmationPrint($record);
 
                         // 印刷可能性チェック
                         $approvalService = app(ShortageApprovalService::class);
@@ -456,9 +462,8 @@ class WmsShipmentSlipsTable
 
                         // Waveの印刷回数をインクリメント、初回出荷確定時はstatusをCOMPLETEDに更新
                         if ($record->wave) {
-                            $isFirstPrint = $record->wave->print_count === 0;
                             $record->wave->increment('print_count');
-                            if ($isFirstPrint) {
+                            if ($isShipmentConfirmationPrint) {
                                 $record->wave->update(['status' => 'COMPLETED']);
                             }
                         }
@@ -496,6 +501,68 @@ class WmsShipmentSlipsTable
                             ->{$notificationType}()
                             ->send();
                     }),
+
+                Action::make('specificSlipPrint')
+                    ->extraAttributes(['class' => 'whitespace-nowrap'])
+                    ->label('専用伝票')
+                    ->badge(fn (WmsPickingTask $record) => static::specificSlipActionBadge($record))
+                    ->badgeColor(fn (WmsPickingTask $record) => static::specificSlipActionBadgeColor($record))
+                    ->icon('heroicon-o-document-duplicate')
+                    ->color('info')
+                    ->visible(fn (WmsPickingTask $record) => static::recordHasSpecificSlipTargets($record))
+                    ->modalHeading('専用伝票印刷')
+                    ->modalWidth('7xl')
+                    ->extraModalWindowAttributes(['class' => 'incoming-detail-modal specific-slip-print-modal'])
+                    ->modalFooterActionsAlignment(Alignment::End)
+                    ->modalCancelActionLabel('印刷せず閉じる')
+                    ->schema(fn (WmsPickingTask $record) => static::specificSlipPaperConfirmationSchema($record, true))
+                    ->modalSubmitAction(false)
+                    ->action(fn (): null => null),
+
+                Action::make('resetPrint')
+                    ->extraAttributes(['class' => 'whitespace-nowrap'])
+                    ->label('印刷消し')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('warning')
+                    ->visible(fn (WmsPickingTask $record) => app()->environment('production') === false && ($record->wave->print_count ?? 0) > 0)
+                    ->requiresConfirmation()
+                    ->modalHeading('印刷消し')
+                    ->modalDescription('この配送コースの印刷状態をリセットし、再度出荷確定できるようにします。')
+                    ->modalSubmitActionLabel('リセット')
+                    ->action(function (WmsPickingTask $record) {
+                        $query = WmsPickingTask::where('shipment_date', $record->shipment_date)
+                            ->where('delivery_course_id', $record->delivery_course_id);
+
+                        if ($record->wave_id) {
+                            $query->where('wave_id', $record->wave_id);
+                        }
+
+                        $tasks = $query->get();
+                        $taskIds = $tasks->pluck('id')->all();
+
+                        foreach ($tasks as $task) {
+                            $update = [
+                                'print_requested_count' => 0,
+                                'last_printed_at' => null,
+                                'last_printed_by' => null,
+                                'last_printed_printer_id' => null,
+                            ];
+                            if ($task->status === WmsPickingTask::STATUS_SHIPPED) {
+                                $update['status'] = WmsPickingTask::STATUS_COMPLETED;
+                            }
+                            $task->update($update);
+                        }
+
+                        if ($record->wave) {
+                            $record->wave->update(['print_count' => 0]);
+                        }
+
+                        Notification::make()
+                            ->success()
+                            ->title('印刷状態をリセットしました')
+                            ->body(count($taskIds).'件のタスクをリセットしました')
+                            ->send();
+                    }),
             ], position: RecordActionsPosition::BeforeColumns)
             ->checkIfRecordIsSelectableUsing(function (WmsPickingTask $record): bool {
                 $printCount = $record->wave->print_count ?? 0;
@@ -509,70 +576,72 @@ class WmsShipmentSlipsTable
                     ->color('primary')
                     ->modalHeading('一括出荷確定')
                     ->modalWidth('3xl')
-                    ->schema([
-                        Section::make('プリンター選択')
-                            ->schema([
-                                Select::make('printer_warehouse_id')
-                                    ->label('倉庫')
-                                    ->options(
-                                        Warehouse::query()
-                                            ->where('is_active', true)
-                                            ->pluck('name', 'id')
-                                    )
-                                    ->default(fn () => auth()->user()?->default_warehouse_id)
-                                    ->searchable()
-                                    ->live()
-                                    ->afterStateUpdated(fn ($set) => $set('printer_driver_id', null)),
+                    ->schema(function () {
+                        return [
+                            Section::make('プリンター選択')
+                                ->schema([
+                                    Select::make('printer_warehouse_id')
+                                        ->label('倉庫')
+                                        ->options(
+                                            Warehouse::query()
+                                                ->where('is_active', true)
+                                                ->pluck('name', 'id')
+                                        )
+                                        ->default(fn () => auth()->user()?->default_warehouse_id)
+                                        ->searchable()
+                                        ->live()
+                                        ->afterStateUpdated(fn ($set) => $set('printer_driver_id', null)),
 
-                                Select::make('printer_driver_id')
-                                    ->label('プリンター')
-                                    ->options(function (Get $get) {
-                                        $warehouseId = $get('printer_warehouse_id');
-                                        if (! $warehouseId) {
-                                            return [];
-                                        }
-
-                                        $printers = ClientPrinterDriver::query()
-                                            ->where('warehouse_id', $warehouseId)
-                                            ->where('is_active', true)
-                                            ->get()
-                                            ->mapWithKeys(fn ($p) => [
-                                                $p->id => filled($p->user_name) ? $p->user_name : $p->display_name,
-                                            ]);
-
-                                        if ($printers->isEmpty()) {
-                                            return ['' => 'なし（PDFのみ生成）'];
-                                        }
-
-                                        return ['' => 'なし（PDFのみ生成）'] + $printers->toArray();
-                                    })
-                                    ->default('')
-                                    ->extraAlpineAttributes([
-                                        'x-init' => "
-                                            const savedPrinterId = localStorage.getItem('wms-shipment-slips.printer')
-                                            if ((state === null || state === undefined || state === '') && savedPrinterId !== null) {
-                                                state = savedPrinterId
+                                    Select::make('printer_driver_id')
+                                        ->label('プリンター')
+                                        ->options(function (Get $get) {
+                                            $warehouseId = $get('printer_warehouse_id');
+                                            if (! $warehouseId) {
+                                                return [];
                                             }
-                                        ",
-                                        'x-effect' => "
-                                            if (state !== null && state !== undefined) {
-                                                localStorage.setItem('wms-shipment-slips.printer', state)
-                                            }
-                                        ",
-                                    ])
-                                    ->live()
-                                    ->searchable()
-                                    ->helperText(function (Get $get) {
-                                        $printerId = $get('printer_driver_id');
-                                        if (! $printerId) {
-                                            return '印刷されず、酒丸側でPDFのみが生成されます。';
-                                        }
 
-                                        return null;
-                                    }),
-                            ])
-                            ->compact(),
-                    ])
+                                            $printers = ClientPrinterDriver::query()
+                                                ->where('warehouse_id', $warehouseId)
+                                                ->where('is_active', true)
+                                                ->get()
+                                                ->mapWithKeys(fn ($p) => [
+                                                    $p->id => filled($p->user_name) ? $p->user_name : $p->display_name,
+                                                ]);
+
+                                            if ($printers->isEmpty()) {
+                                                return ['' => 'なし（PDFのみ生成）'];
+                                            }
+
+                                            return ['' => 'なし（PDFのみ生成）'] + $printers->toArray();
+                                        })
+                                        ->default('')
+                                        ->extraAlpineAttributes([
+                                            'x-init' => "
+                                                const savedPrinterId = localStorage.getItem('wms-shipment-slips.printer')
+                                                if ((state === null || state === undefined || state === '') && savedPrinterId !== null) {
+                                                    state = savedPrinterId
+                                                }
+                                            ",
+                                            'x-effect' => "
+                                                if (state !== null && state !== undefined) {
+                                                    localStorage.setItem('wms-shipment-slips.printer', state)
+                                                }
+                                            ",
+                                        ])
+                                        ->live()
+                                        ->searchable()
+                                        ->helperText(function (Get $get) {
+                                            $printerId = $get('printer_driver_id');
+                                            if (! $printerId) {
+                                                return '印刷されず、酒丸側でPDFのみが生成されます。';
+                                            }
+
+                                            return null;
+                                        }),
+                                ])
+                                ->compact(),
+                        ];
+                    })
                     ->modalDescription(function (Collection $records): \Illuminate\Support\HtmlString|string {
                         $approvalService = app(ShortageApprovalService::class);
 
@@ -691,10 +760,12 @@ class WmsShipmentSlipsTable
                         return new \Illuminate\Support\HtmlString($html);
                     })
                     ->modalSubmitActionLabel('一括出荷確定')
-                    ->action(function (Collection $records, array $data): void {
+                    ->action(function (Collection $records, array $data, $livewire): void {
                         $selectedPrinterId = ! empty($data['printer_driver_id'])
                             ? (int) $data['printer_driver_id']
                             : null;
+
+                        $records = static::sortRecordsForBulkPrint($records, $livewire);
 
                         $printService = app(PrintRequestService::class);
                         $approvalService = app(ShortageApprovalService::class);
@@ -836,7 +907,7 @@ class WmsShipmentSlipsTable
                 $query->whereIn('id', function ($subQuery) {
                     $subQuery->select(DB::raw('MIN(id)'))
                         ->from('wms_picking_tasks')
-                        ->groupBy('delivery_course_id', 'wave_id', 'shipment_date');
+                        ->groupBy('shipment_date', 'delivery_course_id', 'wave_id');
                 })
                     ->whereExists(fn ($query) => static::printTargetExistsQuery($query))
                     ->with(['deliveryCourse', 'warehouse', 'wave.waveSetting', 'lastPrintedByUser', 'lastPrintedPrinter']);
@@ -852,6 +923,347 @@ class WmsShipmentSlipsTable
 
                 return '5s';
             });
+    }
+
+    protected static function recordHasSpecificSlipTargets(WmsPickingTask $record): bool
+    {
+        if (array_key_exists('has_dedicated_slip', $record->getAttributes())) {
+            return (bool) $record->getAttribute('has_dedicated_slip');
+        }
+
+        return app(SpecificSlipPrintTargetService::class)
+            ->collectForRecord($record)
+            ->isNotEmpty();
+    }
+
+    protected static function isShipmentConfirmationPrint(WmsPickingTask $record): bool
+    {
+        return (int) ($record->wave?->print_count ?? 0) === 0;
+    }
+
+    protected static function specificSlipPaperConfirmationSchema(WmsPickingTask $record, bool $includeWhenEmpty = false): array
+    {
+        $groups = app(SpecificSlipPrintTargetService::class)->collectForRecord($record);
+
+        return static::specificSlipPaperConfirmationSchemaFromGroups($groups, $includeWhenEmpty);
+    }
+
+    protected static function specificSlipPaperConfirmationSchemaForRecords(iterable $records, bool $includeWhenEmpty = false): array
+    {
+        $groups = static::specificSlipGroupsForRecords($records);
+
+        return static::specificSlipPaperConfirmationSchemaFromGroups($groups, $includeWhenEmpty);
+    }
+
+    protected static function specificSlipPaperConfirmationSchemaFromGroups(SupportCollection $groups, bool $includeWhenEmpty = false): array
+    {
+        if ($groups->isEmpty() && ! $includeWhenEmpty) {
+            return [];
+        }
+
+        if ($groups->isEmpty()) {
+            $components = [
+                Placeholder::make('specific_slip_empty')
+                    ->hiddenLabel()
+                    ->content(new \Illuminate\Support\HtmlString(
+                        '<div class="text-sm text-gray-600 dark:text-gray-400">印刷対象の専用伝票はありません。</div>'
+                    )),
+            ];
+        } else {
+            $components = $groups
+                ->values()
+                ->flatMap(fn (array $group, int $groupIndex) => collect($group['slips'] ?? [])
+                    ->values()
+                    ->map(fn ($slip, int $slipIndex) => static::specificSlipCardComponent($group, (array) $slip, $groupIndex, $slipIndex)))
+                ->values()
+                ->all();
+        }
+
+        return [
+            Section::make()
+                ->schema($components)
+                ->compact(),
+        ];
+    }
+
+    protected static function specificSlipCardComponent(array $group, array $slip, int $groupIndex, int $slipIndex): Grid
+    {
+        $target = static::specificSlipTargetForSlip($group, $slip);
+        $target = app(SpecificSlipPrintQueueService::class)
+            ->annotateGroupsWithQueueStatus(collect([$target]))
+            ->first() ?? $target;
+
+        return Grid::make([
+            'default' => 1,
+            'md' => 12,
+        ])
+            ->schema([
+                ViewField::make('specific_slip_group_'.$groupIndex.'_slip_'.$slipIndex)
+                    ->hiddenLabel()
+                    ->dehydrated(false)
+                    ->view('filament.components.specific-slip-print-slip-row')
+                    ->viewData([
+                        'group' => $group,
+                        'slip' => $slip,
+                        'target' => $target,
+                        'index' => $slipIndex,
+                    ])
+                    ->columnSpan([
+                        'default' => 'full',
+                        'md' => 10,
+                    ]),
+                SchemaActions::make([
+                    static::specificSlipRowPrintAction($target, (($groupIndex + 1) * 1000) + $slipIndex),
+                ])
+                    ->hiddenLabel()
+                    ->alignEnd()
+                    ->extraAttributes(['class' => 'specific-slip-print-slip-action'])
+                    ->columnSpan([
+                        'default' => 'full',
+                        'md' => 2,
+                    ]),
+                ViewField::make('specific_slip_group_'.$groupIndex.'_slip_'.$slipIndex.'_info')
+                    ->hiddenLabel()
+                    ->dehydrated(false)
+                    ->view('filament.components.specific-slip-print-slip-info')
+                    ->viewData([
+                        'slip' => $slip,
+                    ])
+                    ->columnSpan([
+                        'default' => 'full',
+                        'md' => 'full',
+                    ]),
+                ViewField::make('specific_slip_group_'.$groupIndex.'_slip_'.$slipIndex.'_items')
+                    ->hiddenLabel()
+                    ->dehydrated(false)
+                    ->view('filament.components.specific-slip-print-slip-items')
+                    ->viewData([
+                        'items' => collect($slip['items'] ?? [])->values()->all(),
+                    ])
+                    ->columnSpan([
+                        'default' => 'full',
+                        'md' => 'full',
+                    ]),
+            ])
+            ->extraAttributes([
+                'class' => 'specific-slip-print-slip-card rounded-md border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-950',
+            ])
+            ->columnSpan([
+                'default' => 'full',
+                'md' => 'full',
+            ]);
+    }
+
+    protected static function specificSlipRowPrintAction(array $group, int $index): Action
+    {
+        $canPrint = (bool) ($group['can_print'] ?? false);
+        $isQueued = in_array($group['queue_status'] ?? null, [
+            SpecificSlipPrintRequestQueue::STATUS_PENDING,
+            SpecificSlipPrintRequestQueue::STATUS_PROCESSING,
+        ], true);
+        $actionName = 'specific_slip_row_print_'.substr(sha1(json_encode([
+            $group['confirmation_key'] ?? static::specificSlipConfirmationKey($group),
+            $group['print_order'] ?? $index,
+            $group['source_record_id'] ?? null,
+        ], JSON_THROW_ON_ERROR)), 0, 16);
+
+        return Action::make($actionName)
+            ->label('印刷')
+            ->icon('heroicon-o-printer')
+            ->color('primary')
+            ->size(Size::Small)
+            ->button()
+            ->disabled(! $canPrint || $isQueued)
+            ->tooltip(match (true) {
+                ! $canPrint => (string) ($group['disabled_reason'] ?? '印刷設定を確認してください'),
+                $isQueued => '専用伝票キューは作成済みです。',
+                default => null,
+            })
+            ->action(function () use ($group): void {
+                $result = app(SpecificSlipPrintQueueService::class)
+                    ->createForGroups(collect([$group]), true);
+
+                static::sendSpecificSlipPrintNotification($result);
+            });
+    }
+
+    protected static function specificSlipActionBadge(WmsPickingTask $record): string|int|null
+    {
+        $groups = app(SpecificSlipPrintTargetService::class)->collectForRecord($record);
+        if ($groups->isEmpty()) {
+            return null;
+        }
+
+        $count = app(SpecificSlipPrintQueueService::class)
+            ->countIncompleteTargets(static::specificSlipPrintTargetsFromGroups($groups));
+
+        return $count > 0 ? $count : '完了';
+    }
+
+    protected static function specificSlipActionBadgeColor(WmsPickingTask $record): string
+    {
+        $badge = static::specificSlipActionBadge($record);
+
+        return $badge === '完了' ? 'success' : 'warning';
+    }
+
+    protected static function sendSpecificSlipPrintNotification(array $result): void
+    {
+        $lines = static::specificSlipNotificationLines($result);
+        if (empty($lines)) {
+            $lines[] = '印刷対象の専用伝票はありません。';
+        }
+
+        $created = (int) ($result['created_count'] ?? 0);
+        $alreadyQueued = (int) ($result['already_queued_count'] ?? 0);
+        $type = $created > 0 ? 'success' : ($alreadyQueued > 0 ? 'warning' : 'danger');
+
+        Notification::make()
+            ->title('専用伝票印刷')
+            ->body(implode("\n", $lines))
+            ->{$type}()
+            ->send();
+    }
+
+    protected static function queueSpecificSlipsForRecord(WmsPickingTask $record, array|bool $paperConfirmations = []): array
+    {
+        $groups = app(SpecificSlipPrintTargetService::class)->collectForRecord($record);
+
+        return app(SpecificSlipPrintQueueService::class)
+            ->createForGroups(static::specificSlipPrintTargetsFromGroups($groups), $paperConfirmations);
+    }
+
+    protected static function queueSpecificSlipsForRecords(iterable $records, array|bool $paperConfirmations = []): array
+    {
+        $groups = static::specificSlipGroupsForRecords($records);
+
+        return app(SpecificSlipPrintQueueService::class)
+            ->createForGroups(static::specificSlipPrintTargetsFromGroups($groups), $paperConfirmations);
+    }
+
+    protected static function specificSlipPrintTargetsFromGroups(SupportCollection $groups): SupportCollection
+    {
+        return $groups
+            ->flatMap(function (array $group) {
+                $slips = collect($group['slips'] ?? [])->values();
+
+                if ($slips->isEmpty()) {
+                    return [$group];
+                }
+
+                return $slips->map(fn ($slip) => static::specificSlipTargetForSlip($group, (array) $slip));
+            })
+            ->values();
+    }
+
+    protected static function specificSlipTargetForSlip(array $group, array $slip): array
+    {
+        $earningId = (int) ($slip['earning_id'] ?? 0);
+        $target = $group;
+        $target['earning_ids'] = $earningId > 0 ? [$earningId] : [];
+        $target['earning_count'] = $earningId > 0 ? 1 : 0;
+        $target['slips'] = [$slip];
+        $target['confirmation_key'] = static::specificSlipConfirmationKeyForSlip($group, $earningId);
+
+        unset($target['queue_id'], $target['queue_status'], $target['queue_processed_at']);
+
+        return $target;
+    }
+
+    protected static function specificSlipConfirmationKeyForSlip(array $group, int $earningId): string
+    {
+        return implode('_', [
+            $group['client_id'] ?? '',
+            $group['warehouse_id'] ?? '',
+            $group['slip_type_id'] ?? '',
+            substr(sha1((string) ($group['printer_key'] ?? '')), 0, 10),
+            $earningId,
+        ]);
+    }
+
+    protected static function specificSlipGroupsForRecords(iterable $records): SupportCollection
+    {
+        $service = app(SpecificSlipPrintTargetService::class);
+        $groups = collect();
+        $printOrder = 0;
+
+        foreach ($records as $record) {
+            if ($record instanceof WmsPickingTask) {
+                $recordGroups = $service->collectForRecord($record)
+                    ->map(function (array $group) use ($record, &$printOrder) {
+                        $printOrder++;
+                        $group['print_order'] = $printOrder;
+                        $group['source_record_id'] = $record->id;
+                        $group['source_label'] = static::specificSlipSourceLabel($record);
+                        $group['confirmation_key'] = static::specificSlipConfirmationKey($group).'_'.$record->id.'_'.$printOrder;
+
+                        return $group;
+                    });
+
+                $groups = $groups->concat($recordGroups);
+            }
+        }
+
+        return $groups->values();
+    }
+
+    protected static function specificSlipPaperConfirmationsFromData(array $data): array|bool
+    {
+        if (array_key_exists('specific_slip_confirmations', $data)) {
+            return (array) $data['specific_slip_confirmations'];
+        }
+
+        if (array_key_exists('specific_slip_paper_confirmed', $data)) {
+            return (bool) $data['specific_slip_paper_confirmed'];
+        }
+
+        return [];
+    }
+
+    protected static function specificSlipConfirmationKey(array $group): string
+    {
+        if (filled($group['confirmation_key'] ?? null)) {
+            return (string) $group['confirmation_key'];
+        }
+
+        return implode('_', [
+            $group['client_id'] ?? '',
+            $group['warehouse_id'] ?? '',
+            $group['slip_type_id'] ?? '',
+            substr(sha1((string) ($group['printer_key'] ?? '')), 0, 10),
+        ]);
+    }
+
+    protected static function specificSlipSourceLabel(WmsPickingTask $record): string
+    {
+        $courseName = $record->deliveryCourse?->name;
+        $courseLabel = filled($courseName)
+            ? $courseName
+            : '配送コースID: '.$record->delivery_course_id;
+
+        return 'WMS ID: '.$record->id.' / '.$courseLabel;
+    }
+
+    protected static function specificSlipNotificationLines(array $result): array
+    {
+        $lines = [];
+
+        if (($result['created_count'] ?? 0) > 0) {
+            $lines[] = '専用伝票キューを'.((int) $result['created_count']).'件作成しました。';
+        }
+
+        if (($result['already_queued_count'] ?? 0) > 0) {
+            $lines[] = '専用伝票キューは'.((int) $result['already_queued_count']).'件作成済みです。';
+        }
+
+        if (($result['skipped_count'] ?? 0) > 0) {
+            $messages = collect($result['messages'] ?? [])
+                ->take(5)
+                ->implode(' / ');
+            $lines[] = '専用伝票を'.((int) $result['skipped_count']).'件スキップしました。'.$messages;
+        }
+
+        return $lines;
     }
 
     protected static function additionalShortagesSection(WmsPickingTask $record): Section
@@ -1248,6 +1660,30 @@ class WmsShipmentSlipsTable
             ->where('is_active', true)
             ->whereNotNull('printer_driver_id')
             ->exists();
+    }
+
+    protected static function sortRecordsForBulkPrint(Collection $records, $livewire): Collection
+    {
+        $sortColumn = $livewire->getTableSortColumn();
+        $sortDirection = $livewire->getTableSortDirection();
+
+        if ($sortColumn === null) {
+            $sortColumn = 'wave.created_at';
+            $sortDirection = 'desc';
+        }
+
+        $isDesc = $sortDirection === 'desc';
+
+        $callback = match ($sortColumn) {
+            'id' => fn ($r) => $r->id,
+            'delivery_course_code' => fn ($r) => $r->delivery_course_code ?? '',
+            'deliveryCourse.name' => fn ($r) => $r->deliveryCourse?->name ?? '',
+            'shipment_date' => fn ($r) => $r->shipment_date ?? '',
+            'wave.created_at' => fn ($r) => $r->wave?->created_at?->timestamp ?? 0,
+            default => fn ($r) => $r->wave?->created_at?->timestamp ?? 0,
+        };
+
+        return $records->sortBy($callback, SORT_REGULAR, $isDesc)->values();
     }
 
     /**

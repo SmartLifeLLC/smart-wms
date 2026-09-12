@@ -13,7 +13,7 @@ $scan = static function (string $directory, string $suffix) use ($toKebab): arra
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory));
 
     foreach ($iterator as $file) {
-        if (! $file->isFile() || ! str_ends_with($file->getFilename(), $suffix . '.php')) {
+        if (! $file->isFile() || ! str_ends_with($file->getFilename(), $suffix.'.php')) {
             continue;
         }
 
@@ -57,6 +57,7 @@ $pagePermissions = $buildPermissions([
     'auto-order-guide',
     'floor-plan-editor',
     'jx-test-data',
+    'lot-adjustment',
     'modal-showcase',
     'picking-route-visualization',
     'test-data-generator',
@@ -159,6 +160,26 @@ return [
                 'menu' => 'Admin',
                 'sub_menu' => 'Order History',
                 'screen_name' => 'Warehouse Stock Transfer Delivery Course',
+            ],
+            [
+                'name' => 'wms.wms-warehouse-transfer-candidate.confirm',
+                'system' => 'wms',
+                'resource' => 'wms-warehouse-transfer-candidate',
+                'action' => 'confirm',
+                'display_name' => 'Wms Warehouse Transfer Candidate confirm',
+                'menu' => 'Admin',
+                'sub_menu' => 'Resources',
+                'screen_name' => 'Wms Warehouse Transfer Candidate',
+            ],
+            [
+                'name' => 'wms.wms-warehouse-transfer-candidate.cancel',
+                'system' => 'wms',
+                'resource' => 'wms-warehouse-transfer-candidate',
+                'action' => 'cancel',
+                'display_name' => 'Wms Warehouse Transfer Candidate cancel',
+                'menu' => 'Admin',
+                'sub_menu' => 'Resources',
+                'screen_name' => 'Wms Warehouse Transfer Candidate',
             ],
         ],
         $resourcePermissions,

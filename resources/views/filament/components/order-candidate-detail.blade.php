@@ -64,8 +64,11 @@
             {{-- 数量カード --}}
             <div class="grid grid-cols-3 gap-2">
                 <div class="text-center bg-gray-50 dark:bg-white/5 rounded-lg py-2 px-1">
-                    <div class="text-xs text-gray-500 dark:text-gray-400">現在庫</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">理論在庫</div>
                     <div class="text-lg font-bold text-gray-900 dark:text-white">{{ number_format($currentEffectiveStock) }}</div>
+                    @if(isset($snapshotEffectiveStock) && (int) $snapshotEffectiveStock !== (int) $currentEffectiveStock)
+                        <div class="text-[10px] text-amber-600 dark:text-amber-400">算出時: {{ number_format($snapshotEffectiveStock) }}</div>
+                    @endif
                 </div>
                 <div class="text-center bg-gray-50 dark:bg-white/5 rounded-lg py-2 px-1">
                     <div class="text-xs text-gray-500 dark:text-gray-400">算出数</div>
@@ -83,7 +86,7 @@
                 <div class="font-medium text-gray-700 dark:text-gray-300 mb-2">計算情報</div>
                 <div class="font-mono text-gray-700 dark:text-gray-300 mb-2 bg-white dark:bg-white/5 rounded px-2 py-1">{{ $formula }}</div>
                 <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-gray-600 dark:text-gray-400">
-                    <div class="flex justify-between"><span>有効在庫</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($effectiveStock) }}</span></div>
+                    <div class="flex justify-between"><span>有効在庫(算出時)</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($effectiveStock) }}</span></div>
                     <div class="flex justify-between"><span>入荷予定</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($incomingStock) }}</span></div>
                     @if(($transferIncoming ?? 0) > 0 || ($transferOutgoing ?? 0) > 0)
                     <div class="flex justify-between"><span>移動入庫</span><span class="font-semibold text-gray-900 dark:text-white">{{ number_format($transferIncoming ?? 0) }}</span></div>

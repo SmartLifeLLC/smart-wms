@@ -166,6 +166,82 @@ class OrderOutputQuantityResolverTest extends TestCase
         $this->assertSame('バラ', $output['unit_label']);
     }
 
+    public function test_alphanumeric_ordering_code_is_not_zero_padded_for_output(): void
+    {
+        $resolver = new OrderOutputQuantityResolver;
+        $this->setPrivateProperty($resolver, 'orderingCodeInfoCache', [
+            '999006:SN6-93-05' => null,
+        ]);
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => 999006,
+            'quantity_type' => QuantityType::CASE,
+            'order_quantity' => 1,
+            'ordering_code' => 'SN6-93-05',
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => 999006,
+            'capacity_case' => 6,
+        ]);
+
+        $output = $resolver->resolve($candidate);
+
+        $this->assertSame('SN6-93-05', $output['ordering_code']);
+        $this->assertNull($output['ordering_unit_quantity']);
+        $this->assertSame(1, $output['case_quantity']);
+        $this->assertSame(0, $output['piece_quantity']);
+    }
+
+    public function test_zero_padded_alphanumeric_ordering_code_is_unpadded_for_output(): void
+    {
+        $resolver = new OrderOutputQuantityResolver;
+        $this->setPrivateProperty($resolver, 'orderingCodeInfoCache', [
+            '999006:SN6-93-05' => null,
+        ]);
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => 999006,
+            'quantity_type' => QuantityType::CASE,
+            'order_quantity' => 1,
+            'ordering_code' => '0000SN6-93-05',
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => 999006,
+            'capacity_case' => 6,
+        ]);
+
+        $output = $resolver->resolve($candidate);
+
+        $this->assertSame('SN6-93-05', $output['ordering_code']);
+        $this->assertNull($output['ordering_unit_quantity']);
+    }
+
+    public function test_alphanumeric_fallback_ordering_code_is_not_zero_padded_for_output(): void
+    {
+        $resolver = new OrderOutputQuantityResolver;
+        $this->setPrivateProperty($resolver, 'janCodeCache', [
+            999006 => 'SN6-93-05',
+        ]);
+        $this->setPrivateProperty($resolver, 'orderingCodeInfoCache', [
+            '999006:SN6-93-05' => null,
+        ]);
+
+        $candidate = new WmsOrderCandidate([
+            'item_id' => 999006,
+            'quantity_type' => QuantityType::CASE,
+            'order_quantity' => 1,
+            'ordering_code' => null,
+        ]);
+        $candidate->setRelation('item', (object) [
+            'id' => 999006,
+            'capacity_case' => 6,
+        ]);
+
+        $output = $resolver->resolve($candidate);
+
+        $this->assertSame('SN6-93-05', $output['ordering_code']);
+    }
+
     public function test_missing_ordering_code_is_not_replaced_by_preferred_six_pack_code(): void
     {
         $resolver = new OrderOutputQuantityResolver;

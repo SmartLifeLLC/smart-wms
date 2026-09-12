@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Waves\Tables;
 
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
+use App\Models\QuantityUpdateQueue;
 use App\Models\Sakemaru\ClientSetting;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\Wave;
@@ -927,7 +928,7 @@ HTML;
 
         $quantityUpdateRequestIds = $sourcePickResultIds;
         if (! empty($tradeIds) || ! empty($tradeItemIds) || ! empty($quantityUpdateRequestIds)) {
-            $hasQuantityUpdateQueue = $connection
+            $hasUnfinishedQuantityUpdateQueue = $connection
                 ->table('quantity_update_queue')
                 ->where(function ($query) use ($tradeIds, $tradeItemIds, $quantityUpdateRequestIds) {
                     if (! empty($tradeIds)) {
@@ -944,10 +945,16 @@ HTML;
                         $query->{$method}('request_id', $quantityUpdateRequestIds);
                     }
                 })
+                ->where(function ($query) {
+                    $query->whereNull('status')
+                        ->orWhere('status', '!=', QuantityUpdateQueue::STATUS_FINISHED)
+                        ->orWhereNull('is_success')
+                        ->orWhere('is_success', '!=', true);
+                })
                 ->exists();
 
-            if ($hasQuantityUpdateQueue) {
-                $blockers[] = 'quantity_update_queue作成済み';
+            if ($hasUnfinishedQuantityUpdateQueue) {
+                $blockers[] = 'quantity_update_queue未完了または失敗あり';
             }
         }
 

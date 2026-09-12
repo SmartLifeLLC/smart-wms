@@ -8,6 +8,7 @@ use App\Enums\QuantityType;
 use App\Models\WmsContractorSetting;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Models\WmsOrderJxSetting;
+use App\Services\AutoOrder\LegacyEosSlipNumberService;
 use App\Services\JX\JxDataWrapper;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -64,6 +65,10 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      * データなし時にAレコードを含めるか
      */
     protected bool $addZeroRecord = true;
+
+    public function __construct(
+        private readonly ?LegacyEosSlipNumberService $legacySlipNumberService = null
+    ) {}
 
     /**
      * 発注先コード => 発注先ID のキャッシュ
@@ -151,7 +156,8 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
             $jxSetting = $this->getJxSettingByContractorCode($transmissionContractorCode);
 
             $contentStart = microtime(true);
-            $content = $this->generateFileContent($transmissionContractorCode, $candidates, $jxSetting);
+            $slipAssignments = [];
+            $content = $this->generateFileContent($transmissionContractorCode, $candidates, $jxSetting, $slipAssignments);
             $contentElapsed = round((microtime(true) - $contentStart) * 1000);
 
             $filename = $this->generateFilename($transmissionContractorCode);
@@ -165,6 +171,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
                 'encoding' => self::ENCODING,
                 'record_count' => $this->countRecords($candidates),
                 'order_count' => $candidates->count(),
+                'slip_assignments' => $slipAssignments,
             ];
 
             Log::info('[HanaOrderFileGenerator] ファイル生成完了', [
@@ -238,18 +245,40 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     private const MAX_D_RECORDS_PER_B = 6;
 
     /**
+     * B/Dレコードのグルーピングキーを生成
+     *
+     * 発注先×倉庫に加えて入荷予定日（納品日）を含める。
+     * 入荷予定日をキーに含めないと、同一発注先×倉庫でも入荷予定日が異なる候補が
+     * 1つのBレコードにまとまり、Bレコードの納品日が先頭候補の日付で全件統一されてしまう。
+     * （Bレコードの納品日は generateBRecord() で先頭候補の expected_arrival_date を採用するため）
+     */
+    private function buildRecordGroupKey($candidate): string
+    {
+        $arrivalDate = $candidate->expected_arrival_date?->format('Y-m-d') ?? 'no-date';
+
+        return "{$candidate->contractor_id}_{$candidate->warehouse_id}_{$arrivalDate}";
+    }
+
+    /**
      * ファイル内容を生成
      *
      * 仕様: レコード間に改行なし、ファイル末尾にのみCRLF
      * 1つのBレコードには最大6行のDレコードまで。超える場合は新しいBレコードを作成。
      */
-    private function generateFileContent(int $transmissionContractorCode, Collection $candidates, ?WmsOrderJxSetting $jxSetting = null): string
-    {
+    private function generateFileContent(
+        int $transmissionContractorCode,
+        Collection $candidates,
+        ?WmsOrderJxSetting $jxSetting = null,
+        ?array &$slipAssignments = null
+    ): string {
         $records = [];
+        $slipAssignments = [];
 
-        // 発注先×倉庫でグルーピングしてB/Dレコードを生成
+        // 発注先×倉庫×入荷予定日でグルーピングしてB/Dレコードを生成
+        // 入荷予定日をキーに含めないと、同一発注先×倉庫で入荷予定日が異なる候補が
+        // 1つのBレコードにまとまり、納品日が先頭候補の日付で全件統一されてしまう。
         $groupedByContractorWarehouse = $candidates->groupBy(function ($candidate) {
-            return "{$candidate->contractor_id}_{$candidate->warehouse_id}";
+            return $this->buildRecordGroupKey($candidate);
         });
 
         // 6行制限を考慮してBレコード数とDレコード数を計算
@@ -272,16 +301,21 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
             foreach ($chunks as $chunk) {
                 $firstCandidate = $chunk->first();
 
-                // 確定済み入荷予定からslip_numberを取得（あればDB値を使用）
-                $dbSlipNumber = null;
-                if ($firstCandidate->id) {
-                    $schedule = WmsOrderIncomingSchedule::where('order_candidate_id', $firstCandidate->id)
-                        ->whereNotNull('slip_number')
-                        ->first();
-                    $dbSlipNumber = $schedule?->slip_number;
-                }
-
-                $slipNumber = $this->resolveBRecordSlipNumber($firstCandidate, $bRecordSeq, $dbSlipNumber, $usedSlipNumbers);
+                $legacySlip = $this->resolveBRecordSlipNumber($chunk, $usedSlipNumbers);
+                $slipNumber = $legacySlip['slip_number'];
+                $slipAssignments[] = [
+                    'slip_number' => $slipNumber,
+                    'store_code' => $legacySlip['store_code'],
+                    'year_code' => $legacySlip['year_code'],
+                    'sequence_no' => $legacySlip['sequence_no'],
+                    'b_record_sequence' => $bRecordSeq,
+                    'order_candidate_ids' => $chunk
+                        ->pluck('id')
+                        ->filter()
+                        ->map(fn ($id) => (int) $id)
+                        ->values()
+                        ->all(),
+                ];
 
                 // Bレコード（伝票ヘッダ）
                 $records[] = $this->generateBRecord($firstCandidate, $bRecordSeq, $slipNumber);
@@ -359,7 +393,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
      * 仕様:
      * 1: レコード区分 X(01) - "B"
      * 2-3: データ種別 9(02) - "01"
-     * 4-14: 伝票番号 X(11) - YYMMDD + 連番5桁（日付ベースでユニーク）
+     * 4-14: 伝票番号 X(11) - 旧EOS形式（店舗CD2桁 + 年度コード2桁 + 10固定 + 連番5桁）
      * 15-18: 社・店コード X(04) - 入庫倉庫コード（0埋め4桁）
      * 19-21: 分類コード X(03) - "999" 固定
      * 22-23: 伝票区分 X(02) - "01" 固定
@@ -380,13 +414,10 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $orderDate = Carbon::now();
         $deliveryDate = $candidate->expected_arrival_date ?? $orderDate->copy()->addDays(2);
 
-        // 伝票番号: DB保存値（11桁数字のみ）をそのまま使用、なければ動的生成
+        // 伝票番号: Bレコード単位で解決した11桁数字を使用
         if ($slipNumber) {
             if (! preg_match('/^\d{11}$/', $slipNumber)) {
-                Log::warning('Invalid JX slip number replaced', [
-                    'invalid_slip_number' => $slipNumber,
-                ]);
-                $slipNumber = WmsOrderIncomingSchedule::formatSlipNumber($orderDate->toDateString(), $seq);
+                throw new \RuntimeException("JX伝票番号は11桁数字である必要があります: {$slipNumber}");
             }
         } else {
             $slipNumber = WmsOrderIncomingSchedule::formatSlipNumber($orderDate->toDateString(), $seq);
@@ -415,30 +446,59 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         return $this->ensureRecordLength($record);
     }
 
-    private function resolveBRecordSlipNumber($candidate, int $seq, ?string $slipNumber, array &$usedSlipNumbers): string
+    /**
+     * @return array{slip_number: string, store_code: string, year_code: int, sequence_no: int}
+     */
+    private function resolveBRecordSlipNumber(Collection $chunk, array &$usedSlipNumbers): array
     {
-        $orderDate = Carbon::now()->toDateString();
+        $firstCandidate = $chunk->first();
+        $existingSlipNumber = $this->existingLegacySlipNumber($firstCandidate);
+        $service = $this->legacySlipNumberService();
 
-        if ($slipNumber && preg_match('/^\d{11}$/', $slipNumber) && ! in_array($slipNumber, $usedSlipNumbers, true)) {
-            $usedSlipNumbers[] = $slipNumber;
+        if ($existingSlipNumber && ! in_array($existingSlipNumber, $usedSlipNumbers, true)) {
+            $usedSlipNumbers[] = $existingSlipNumber;
 
-            return $slipNumber;
+            return [
+                'slip_number' => $existingSlipNumber,
+                'store_code' => substr($existingSlipNumber, 0, 2),
+                'year_code' => (int) substr($existingSlipNumber, 2, 2),
+                'sequence_no' => (int) substr($existingSlipNumber, 6, 5),
+            ];
         }
 
-        if ($slipNumber) {
+        if ($existingSlipNumber) {
             Log::warning('JX slip number replaced', [
-                'candidate_id' => $candidate->id ?? null,
-                'slip_number' => $slipNumber,
+                'candidate_id' => $firstCandidate->id ?? null,
+                'slip_number' => $existingSlipNumber,
             ]);
         }
 
         do {
-            $newSlipNumber = WmsOrderIncomingSchedule::formatSlipNumber($orderDate, $seq++);
+            $legacySlip = $service->allocateForWarehouse($firstCandidate->warehouse, Carbon::now());
+            $newSlipNumber = $legacySlip['slip_number'];
         } while (in_array($newSlipNumber, $usedSlipNumbers, true));
 
         $usedSlipNumbers[] = $newSlipNumber;
 
-        return $newSlipNumber;
+        return $legacySlip;
+    }
+
+    private function existingLegacySlipNumber($candidate): ?string
+    {
+        if (! $candidate?->id) {
+            return null;
+        }
+
+        $slipNumber = WmsOrderIncomingSchedule::where('order_candidate_id', $candidate->id)
+            ->whereNotNull('slip_number')
+            ->value('slip_number');
+
+        return $this->legacySlipNumberService()->isLegacySlipNumber($slipNumber) ? $slipNumber : null;
+    }
+
+    private function legacySlipNumberService(): LegacyEosSlipNumberService
+    {
+        return $this->legacySlipNumberService ?? app(LegacyEosSlipNumberService::class);
     }
 
     /**
@@ -490,9 +550,13 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
 
         // 原単価を取得
         // 発注コード数量区分がある場合も、先方は原単価を仕入入数で割るためケース原価を送る。
+        // ただし仕入入数1の単品商品はケース原価が未設定のため、バラ原価を送る。
+        $priceQuantityType = $capacityCase <= 1
+            ? QuantityType::PIECE
+            : ($orderingUnitQty !== null ? QuantityType::CASE : $candidate->quantity_type);
         $costPrice = $this->getCurrentCostPrice(
             $item?->id,
-            $orderingUnitQty !== null ? QuantityType::CASE : $candidate->quantity_type
+            $priceQuantityType
         );
         $priceFormatted = (int) round($costPrice * 100);
 
@@ -565,7 +629,7 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
     {
         // 6件ずつ分割した場合のBレコード数を計算
         $grouped = $candidates->groupBy(function ($c) {
-            return "{$c->contractor_id}_{$c->warehouse_id}";
+            return $this->buildRecordGroupKey($c);
         });
 
         $bCount = 0;
@@ -592,10 +656,13 @@ class HanaOrderJXFileGenerator implements OrderFileGeneratorInterface
         $setting = WmsContractorSetting::where('contractor_id', $contractorId)->first();
 
         if ($setting?->wms_order_jx_setting_id) {
-            return WmsOrderJxSetting::find($setting->wms_order_jx_setting_id);
+            $jxSetting = WmsOrderJxSetting::find($setting->wms_order_jx_setting_id);
+            if ($jxSetting?->is_active) {
+                return $jxSetting;
+            }
         }
 
-        return null;
+        return WmsOrderJxSetting::findByContractorId($contractorId);
     }
 
     /**

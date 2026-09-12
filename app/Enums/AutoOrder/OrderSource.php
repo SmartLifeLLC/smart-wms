@@ -8,6 +8,7 @@ enum OrderSource: string
     case MANUAL = 'MANUAL';
     case TRANSFER = 'TRANSFER';
     case RECEIVED = 'RECEIVED';
+    case APP_UNPLANNED = 'APP_UNPLANNED';
 
     public function label(): string
     {
@@ -16,6 +17,7 @@ enum OrderSource: string
             self::MANUAL => '手動発注',
             self::TRANSFER => '倉庫間移動',
             self::RECEIVED => '受信データ',
+            self::APP_UNPLANNED => '予定なし入荷',
         };
     }
 }

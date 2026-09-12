@@ -26,6 +26,8 @@ class JxDocumentReceiver
 
     protected string $environment = WmsJxTransmissionLog::ENV_PRODUCTION;
 
+    protected ?string $lastError = null;
+
     public function __construct(WmsOrderJxSetting $setting)
     {
         $this->setting = $setting;
@@ -60,6 +62,11 @@ class JxDocumentReceiver
         $this->storageDirectory = $directory;
 
         return $this;
+    }
+
+    public function getLastError(): ?string
+    {
+        return $this->lastError;
     }
 
     /**
@@ -110,6 +117,8 @@ class JxDocumentReceiver
         $getResult = $this->client->getDocument();
 
         if ($getResult->failed()) {
+            $this->lastError = $getResult->error ?? 'JX GetDocument failed';
+
             Log::error('JX GetDocument failed', [
                 'error' => $getResult->error,
                 'message_id' => $getResult->messageId,
@@ -120,12 +129,15 @@ class JxDocumentReceiver
 
         // 2. ドキュメントの有無を確認
         if (! $getResult->hasDocument()) {
+            $this->lastError = null;
+
             Log::info('JX GetDocument: No document available');
 
             return null;
         }
 
         // 3. データを抽出
+        $this->lastError = null;
         $receivedDocument = $this->extractDocument($getResult);
 
         // 4. ファイルを保存
@@ -162,9 +174,10 @@ class JxDocumentReceiver
         try {
             // ディスク情報をパスに含める（例: "s3:jx-received/..." または "local:jx-received/..."）
             $filePathWithDisk = "{$this->storageDisk}:{$document->savedPath}";
+            $logSetting = $this->resolveLogJxSetting($document);
 
             WmsJxTransmissionLog::logReceive(
-                jxSettingId: $this->setting->id,
+                jxSettingId: $logSetting->id,
                 operationType: JxClient::DOCUMENT_TYPE_GET,
                 messageId: $document->messageId,
                 success: true,
@@ -182,6 +195,49 @@ class JxDocumentReceiver
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * JX受信は共通クライアントIDで全仕入先分が返るため、DAT内のFINETコードでログのJX設定を決める。
+     */
+    protected function resolveLogJxSetting(JxReceivedDocument $document): WmsOrderJxSetting
+    {
+        $finetCode = JxFinetWrapper::detectReceiverStationCode($document->data);
+
+        if ($finetCode === null) {
+            return $this->setting;
+        }
+
+        $query = WmsOrderJxSetting::query()
+            ->active()
+            ->where('receiver_station_code', $finetCode);
+
+        if ($this->setting->jx_client_id !== null && $this->setting->jx_client_id !== '') {
+            $query->where('jx_client_id', $this->setting->jx_client_id);
+        }
+
+        $detectedSetting = $query->first();
+
+        if (! $detectedSetting) {
+            Log::warning('JX received document FINET code did not match active JX setting', [
+                'finet_code' => $finetCode,
+                'fallback_jx_setting_id' => $this->setting->id,
+                'message_id' => $document->messageId,
+            ]);
+
+            return $this->setting;
+        }
+
+        if ($detectedSetting->id !== $this->setting->id) {
+            Log::info('JX received document setting resolved from FINET code', [
+                'finet_code' => $finetCode,
+                'initial_jx_setting_id' => $this->setting->id,
+                'detected_jx_setting_id' => $detectedSetting->id,
+                'message_id' => $document->messageId,
+            ]);
+        }
+
+        return $detectedSetting;
     }
 
     /**

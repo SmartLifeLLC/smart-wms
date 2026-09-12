@@ -66,6 +66,8 @@ class WmsShortageAllocation extends Model
 
     public const STATUS_SHORTAGE = 'SHORTAGE';
 
+    public const STATUS_CANCELLED = 'CANCELLED';
+
     // Quantity type constants
     public const QTY_TYPE_CASE = 'CASE';
 

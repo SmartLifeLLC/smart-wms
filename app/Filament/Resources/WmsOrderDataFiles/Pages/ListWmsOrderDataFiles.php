@@ -12,6 +12,7 @@ use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+
 class ListWmsOrderDataFiles extends ListRecords
 {
     use AdvancedTables;
@@ -38,11 +39,7 @@ class ListWmsOrderDataFiles extends ListRecords
         return parent::table($table)
             ->modifyQueryUsing(fn (Builder $query) => $query
                 ->with(['warehouse', 'contractor', 'csvDownloadedByUser'])
-                ->forCreatedBy(auth()->id())
                 ->where('is_test', false)
-                ->orderBy('batch_code', 'desc')
-                ->orderBy('warehouse_id')
-                ->orderBy('contractor_id')
             );
     }
 
@@ -105,7 +102,6 @@ class ListWmsOrderDataFiles extends ListRecords
         }
 
         $warehouseIds = WmsOrderDataFile::where('is_test', false)
-            ->forCreatedBy(auth()->id())
             ->distinct()
             ->pluck('warehouse_id')
             ->toArray();

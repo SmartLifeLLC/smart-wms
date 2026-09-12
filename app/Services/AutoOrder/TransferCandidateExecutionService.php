@@ -249,7 +249,7 @@ class TransferCandidateExecutionService
         $expectedArrivalDate = $this->resolveIncomingExpectedArrivalDate($candidate);
         $expirationDate = $this->calculateExpirationDate($candidate->item_id, $expectedArrivalDate);
 
-        $orderDate = ClientSetting::systemDateYMD();
+        $orderDate = ClientSetting::freshSystemDateYMD('order_incoming_schedule:transfer');
         $scheduleData = [
             'warehouse_id' => $candidate->satellite_warehouse_id,
             'item_id' => $candidate->item_id,

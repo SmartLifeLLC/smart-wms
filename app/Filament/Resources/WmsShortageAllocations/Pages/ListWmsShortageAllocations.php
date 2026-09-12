@@ -244,11 +244,6 @@ class ListWmsShortageAllocations extends ListRecords
     public function getPresetViews(): array
     {
         $userDefaultWarehouseId = auth()->user()?->default_warehouse_id;
-        $systemDate = ClientSetting::systemDateYMD();
-
-        $defaultFilterData = [
-            'shipment_date' => ['shipment_date' => $systemDate],
-        ];
 
         // 未完了の横持ち出荷依頼で使われている倉庫を取得
         $warehouseIds = WmsShortageAllocation::where('is_finished', false)
@@ -276,7 +271,6 @@ class ListWmsShortageAllocations extends ListRecords
         if ($defaultWarehouse) {
             $views['default'] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('target_warehouse_id', $userDefaultWarehouseId))
-                ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label($defaultWarehouse->name)
                 ->default();
@@ -284,7 +278,6 @@ class ListWmsShortageAllocations extends ListRecords
             $first = $warehouses->first();
             $views['default'] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('target_warehouse_id', $first->id))
-                ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label($first->name)
                 ->default();
@@ -299,7 +292,6 @@ class ListWmsShortageAllocations extends ListRecords
             }
             $views["wh_{$warehouse->id}"] = PresetView::make()
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('target_warehouse_id', $warehouse->id))
-                ->defaultFilters($defaultFilterData)
                 ->favorite()
                 ->label($warehouse->name);
         }

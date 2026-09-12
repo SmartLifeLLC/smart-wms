@@ -7,6 +7,8 @@ use Livewire\Component;
 
 class WarehouseSelector extends Component
 {
+    private const SELECTABLE_VIRTUAL_WAREHOUSE_CODES = [92];
+
     public ?int $selectedWarehouseId = null;
 
     public string $selectedWarehouseName = '倉庫未選択';
@@ -18,7 +20,10 @@ class WarehouseSelector extends Component
         $user = auth()->user();
         $this->selectedWarehouseId = $user?->getSelectedWarehouseId();
 
-        $warehouseModels = Warehouse::where('is_virtual', false)
+        $warehouseModels = Warehouse::where(function ($query) {
+            $query->where('is_virtual', false)
+                ->orWhereIn('code', self::SELECTABLE_VIRTUAL_WAREHOUSE_CODES);
+        })
             ->orderBy('code')
             ->get(['id', 'code', 'name']);
 

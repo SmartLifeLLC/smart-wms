@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
+use App\Enums\AutoOrder\OrderChannel;
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\AutoOrder\TransmissionType;
 use App\Enums\QuantityType;
 use App\Models\Sakemaru\Contractor;
 use App\Models\Sakemaru\Item;
@@ -38,6 +40,7 @@ class WmsOrderIncomingSchedule extends WmsModel
         'stock_transfer_id',
         'manual_order_number',
         'order_source',
+        'order_channel',
         'slip_number',
         'expected_quantity',
         'received_quantity',
@@ -60,6 +63,9 @@ class WmsOrderIncomingSchedule extends WmsModel
         'shortage_quantity',
         'purchase_queue_id',
         'purchase_slip_number',
+        'source_incoming_schedule_id',
+        'source_received_detail_id',
+        'purchase_split_key',
         'note',
         'cancelled_at',
         'cancelled_by',
@@ -75,10 +81,13 @@ class WmsOrderIncomingSchedule extends WmsModel
         'cancelled_at' => 'datetime',
         'status' => IncomingScheduleStatus::class,
         'order_source' => OrderSource::class,
+        'order_channel' => OrderChannel::class,
         'quantity_type' => QuantityType::class,
         'is_receive_matched' => 'boolean',
         'shortage_quantity' => 'integer',
         'shipped_quantity' => 'integer',
+        'source_incoming_schedule_id' => 'integer',
+        'source_received_detail_id' => 'integer',
         'unit_price' => 'decimal:2',
         'case_price' => 'decimal:2',
         'partner_unit_price' => 'decimal:2',
@@ -187,6 +196,140 @@ class WmsOrderIncomingSchedule extends WmsModel
         return $query->where('order_source', OrderSource::TRANSFER);
     }
 
+    public function scopeForPurchaseTransmission(Builder $query): Builder
+    {
+        $table = $query->getModel()->getTable();
+
+        return $query
+            ->withoutTransferSource()
+            ->whereNotExists(function ($subQuery) use ($table) {
+                $subQuery
+                    ->selectRaw('1')
+                    ->from('wms_contractor_settings as purchase_transmission_settings')
+                    ->whereColumn('purchase_transmission_settings.contractor_id', "{$table}.contractor_id")
+                    ->where('purchase_transmission_settings.transmission_type', TransmissionType::INTERNAL->value);
+            });
+    }
+
+    public function scopeReadyForPurchaseTransmission(Builder $query, ?int $warehouseId = null): Builder
+    {
+        return $query
+            ->confirmed()
+            ->forPurchaseTransmission()
+            ->whereNull('purchase_queue_id')
+            ->when($warehouseId !== null, fn (Builder $query) => $query->forWarehouse($warehouseId));
+    }
+
+    public function scopeWithoutTransferSource(Builder $query): Builder
+    {
+        return $query
+            ->whereIn('order_source', [
+                OrderSource::AUTO->value,
+                OrderSource::MANUAL->value,
+                OrderSource::RECEIVED->value,
+                OrderSource::APP_UNPLANNED->value,
+            ])
+            ->whereNull('transfer_candidate_id')
+            ->whereNull('source_warehouse_id')
+            ->whereNull('stock_transfer_id');
+    }
+
+    public function scopeWithTransferSource(Builder $query): Builder
+    {
+        return $query->where(function (Builder $query): void {
+            $query
+                ->where('order_source', OrderSource::TRANSFER->value)
+                ->orWhereNotNull('transfer_candidate_id')
+                ->orWhereNotNull('source_warehouse_id')
+                ->orWhereNotNull('stock_transfer_id');
+        });
+    }
+
+    public function scopeReadyForIncomingTransmission(Builder $query, ?int $warehouseId = null): Builder
+    {
+        return $query
+            ->confirmed()
+            ->withoutTransferSource()
+            ->whereNull('purchase_queue_id')
+            ->when($warehouseId !== null, fn (Builder $query) => $query->forWarehouse($warehouseId));
+    }
+
+    public function scopeEosSent(Builder $query): Builder
+    {
+        return $query->whereRaw(static::eosSentConditionSql($query->getModel()->getTable()));
+    }
+
+    public function scopeNotEosSent(Builder $query): Builder
+    {
+        return $query->whereRaw('NOT '.static::eosSentConditionSql($query->getModel()->getTable()));
+    }
+
+    public static function eosSentConditionSql(string $table = 'wms_order_incoming_schedules'): string
+    {
+        $scheduleTable = static::rawTableReference($table);
+        $activeStatus = WmsOrderSlipNumberAssignment::STATUS_ACTIVE;
+        $transmittedStatus = WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED;
+
+        return <<<SQL
+            (
+                {$scheduleTable}.`source_received_detail_id` IS NOT NULL
+                OR {$scheduleTable}.`source_incoming_schedule_id` IS NOT NULL
+                OR (
+                    {$scheduleTable}.`order_candidate_id` IS NOT NULL
+                    AND EXISTS (
+                        SELECT 1
+                        FROM `wms_order_candidates` AS eos_order_candidates
+                        WHERE eos_order_candidates.`id` = {$scheduleTable}.`order_candidate_id`
+                            AND eos_order_candidates.`wms_order_jx_document_id` IS NOT NULL
+                    )
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM `wms_order_slip_number_assignments` AS eos_slip_assignments
+                    LEFT JOIN `warehouses` AS eos_warehouses
+                        ON eos_warehouses.`id` = {$scheduleTable}.`warehouse_id`
+                    WHERE eos_slip_assignments.`status` IN ('{$activeStatus}', '{$transmittedStatus}')
+                        AND TRIM(COALESCE({$scheduleTable}.`slip_number`, '')) <> ''
+                        AND eos_slip_assignments.`slip_number` = TRIM({$scheduleTable}.`slip_number`)
+                        AND eos_warehouses.`id` IS NOT NULL
+                        AND (
+                            TRIM(COALESCE(eos_warehouses.`code`, '')) = ''
+                            OR eos_slip_assignments.`store_code` = LPAD(
+                                CASE
+                                    WHEN TRIM(LEADING '0' FROM TRIM(CAST(eos_warehouses.`code` AS CHAR))) = '' THEN '0'
+                                    ELSE TRIM(LEADING '0' FROM TRIM(CAST(eos_warehouses.`code` AS CHAR)))
+                                END,
+                                2,
+                                '0'
+                            )
+                        )
+                )
+                OR (
+                    {$scheduleTable}.`order_candidate_id` IS NOT NULL
+                    AND {$scheduleTable}.`order_candidate_id` IN (
+                        SELECT CAST(eos_candidate_ids.`candidate_id` AS UNSIGNED)
+                        FROM `wms_order_slip_number_assignments` AS eos_candidate_assignments
+                        JOIN JSON_TABLE(
+                            eos_candidate_assignments.`order_candidate_ids`,
+                            '$[*]' COLUMNS (`candidate_id` BIGINT PATH '$')
+                        ) AS eos_candidate_ids
+                        WHERE eos_candidate_assignments.`status` IN ('{$activeStatus}', '{$transmittedStatus}')
+                            AND eos_candidate_assignments.`order_candidate_ids` IS NOT NULL
+                    )
+                )
+            )
+        SQL;
+    }
+
+    private static function rawTableReference(string $table): string
+    {
+        if (str_contains($table, '`')) {
+            return $table;
+        }
+
+        return '`'.str_replace('`', '``', $table).'`';
+    }
+
     // Accessors
 
     /**
@@ -203,6 +346,118 @@ class WmsOrderIncomingSchedule extends WmsModel
     public function getIsFullyReceivedAttribute(): bool
     {
         return $this->received_quantity >= $this->expected_quantity;
+    }
+
+    public function getExpectedPieceQuantityAttribute(): int
+    {
+        return $this->quantityAsPieces($this->expected_quantity);
+    }
+
+    public function getReceivedPieceQuantityAttribute(): int
+    {
+        return $this->quantityAsPieces($this->received_quantity);
+    }
+
+    public function quantityAsPieces(?int $quantity): int
+    {
+        $quantity = (int) ($quantity ?? 0);
+        $quantityType = $this->quantity_type instanceof QuantityType
+            ? $this->quantity_type
+            : QuantityType::tryFrom((string) $this->quantity_type);
+
+        return match ($quantityType) {
+            QuantityType::CASE => $quantity * max(1, (int) ($this->item?->capacity_case ?? 1)),
+            QuantityType::CARTON => $quantity * max(1, (int) ($this->item?->capacity_carton ?? 1)),
+            default => $quantity,
+        };
+    }
+
+    public function isEosSent(): bool
+    {
+        if ($this->source_received_detail_id || $this->source_incoming_schedule_id) {
+            return true;
+        }
+
+        if ($this->hasActiveSlipNumberAssignment()) {
+            return true;
+        }
+
+        if (! $this->order_candidate_id) {
+            return false;
+        }
+
+        if ($this->relationLoaded('orderCandidate') && $this->orderCandidate?->wms_order_jx_document_id) {
+            return true;
+        }
+
+        if (! $this->relationLoaded('orderCandidate')
+            && $this->orderCandidate()
+                ->whereNotNull('wms_order_jx_document_id')
+                ->exists()) {
+            return true;
+        }
+
+        return WmsOrderSlipNumberAssignment::query()
+            ->whereIn('status', [
+                WmsOrderSlipNumberAssignment::STATUS_ACTIVE,
+                WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED,
+            ])
+            ->whereJsonContains('order_candidate_ids', (int) $this->order_candidate_id)
+            ->exists();
+    }
+
+    public function isUnassignedJxReceived(): bool
+    {
+        $orderSource = $this->order_source instanceof OrderSource
+            ? $this->order_source
+            : OrderSource::tryFrom((string) $this->order_source);
+
+        return $orderSource === OrderSource::RECEIVED
+            && str_starts_with((string) $this->purchase_split_key, 'UNASSIGNED_JX_SLIP_');
+    }
+
+    private function hasActiveSlipNumberAssignment(): bool
+    {
+        $slipNumber = trim((string) $this->slip_number);
+
+        if ($slipNumber === '') {
+            return false;
+        }
+
+        $storeCode = $this->legacyStoreCode();
+
+        return WmsOrderSlipNumberAssignment::query()
+            ->whereIn('status', [
+                WmsOrderSlipNumberAssignment::STATUS_ACTIVE,
+                WmsOrderSlipNumberAssignment::STATUS_TRANSMITTED,
+            ])
+            ->where('slip_number', $slipNumber)
+            ->when(
+                $storeCode !== null,
+                fn (Builder $query): Builder => $query->where('store_code', $storeCode)
+            )
+            ->exists();
+    }
+
+    private function legacyStoreCode(): ?string
+    {
+        if ($this->relationLoaded('warehouse')) {
+            $code = $this->warehouse?->code;
+        } elseif ($this->warehouse_id) {
+            $code = $this->warehouse()->value('code');
+        } else {
+            return null;
+        }
+
+        $code = trim((string) $code);
+
+        if ($code === '') {
+            return null;
+        }
+
+        $code = ltrim($code, '0');
+
+        return str_pad($code === '' ? '0' : $code, 2, '0', STR_PAD_LEFT);
     }
 
     // Methods

@@ -302,8 +302,26 @@ class WmsStatsService
      */
     public function summarize(Carbon $date, ?array $warehouseIds = null, bool $forceUpdate = false): array
     {
-        $stats = $this->statsForWarehouses($date, $warehouseIds, $forceUpdate);
+        return $this->summarizeStats($this->statsForWarehouses($date, $warehouseIds, $forceUpdate));
+    }
 
+    /**
+     * 保存済みの日次統計だけを集計する。画面表示時の自動再集計を避ける用途で使う。
+     *
+     * @param  array<int>|null  $warehouseIds
+     * @return array<string, int|float>
+     */
+    public function summarizeStored(Carbon $date, ?array $warehouseIds = null): array
+    {
+        return $this->summarizeStats($this->storedStatsForWarehouses($date, $warehouseIds));
+    }
+
+    /**
+     * @param  Collection<int, WmsDailyStat>  $stats
+     * @return array<string, int|float>
+     */
+    private function summarizeStats(Collection $stats): array
+    {
         $numericColumns = [
             'total_slip_count',
             'shipped_slip_count',
@@ -348,19 +366,41 @@ class WmsStatsService
      */
     public function statsForWarehouses(Carbon $date, ?array $warehouseIds = null, bool $forceUpdate = false): Collection
     {
-        if ($warehouseIds === null) {
-            $warehouseIds = DB::connection('sakemaru')
-                ->table('warehouses')
-                ->where('is_active', true)
-                ->where('is_virtual', false)
-                ->pluck('id')
-                ->map(fn ($id) => (int) $id)
-                ->all();
-        }
-
-        return collect($warehouseIds)
+        return collect($this->targetWarehouseIds($warehouseIds))
             ->map(fn (int $warehouseId) => $this->getOrUpdateDailyStats($date, $warehouseId, $forceUpdate))
             ->values();
+    }
+
+    /**
+     * @param  array<int>|null  $warehouseIds
+     * @return Collection<int, WmsDailyStat>
+     */
+    public function storedStatsForWarehouses(Carbon $date, ?array $warehouseIds = null): Collection
+    {
+        return WmsDailyStat::query()
+            ->where('target_date', $date->format('Y-m-d'))
+            ->whereIn('warehouse_id', $this->targetWarehouseIds($warehouseIds))
+            ->get()
+            ->values();
+    }
+
+    /**
+     * @param  array<int>|null  $warehouseIds
+     * @return array<int>
+     */
+    private function targetWarehouseIds(?array $warehouseIds = null): array
+    {
+        if ($warehouseIds !== null) {
+            return array_values(array_map('intval', $warehouseIds));
+        }
+
+        return DB::connection('sakemaru')
+            ->table('warehouses')
+            ->where('is_active', true)
+            ->where('is_virtual', false)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 
     /**

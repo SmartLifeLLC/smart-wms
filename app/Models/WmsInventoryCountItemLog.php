@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WmsInventoryCountItemLog extends WmsModel
 {
+    public const DEVICE_WEB = 'WEB';
+
+    public const DEVICE_WEB_AUTO_ZERO = 'WEB_AUTO_ZERO';
+
     public $timestamps = false;
 
     protected $fillable = [
@@ -43,8 +47,12 @@ class WmsInventoryCountItemLog extends WmsModel
 
     public function getActorNameAttribute(): string
     {
-        if ($this->device_id === 'WEB') {
+        if ($this->device_id === self::DEVICE_WEB) {
             return $this->user?->name ? "WEB: {$this->user->name}" : 'WEB';
+        }
+
+        if ($this->device_id === self::DEVICE_WEB_AUTO_ZERO) {
+            return $this->user?->name ? "未0: {$this->user->name}" : '未0';
         }
 
         return $this->picker?->display_name

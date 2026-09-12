@@ -20,7 +20,7 @@ class EditContractor extends EditRecord
 
     protected static ?string $title = '発注先編集';
 
-    protected Width | string | null $maxContentWidth = Width::Full;
+    protected Width|string|null $maxContentWidth = Width::Full;
 
     /**
      * フォームスキーマをオーバーライド
@@ -133,6 +133,13 @@ class EditContractor extends EditRecord
             $data['wms_is_transmission_sat'] = $wmsSetting->is_transmission_sat;
             $data['wms_is_transmission_sun'] = $wmsSetting->is_transmission_sun;
             $data['wms_is_auto_transmission'] = $wmsSetting->is_auto_transmission;
+            $data['wms_is_jx_auto_generation_enabled'] = $wmsSetting->is_jx_auto_generation_enabled;
+            $data['wms_jx_generation_time'] = $wmsSetting->jx_generation_time;
+            $data['wms_jx_generation_cutoff_time'] = $wmsSetting->jx_generation_cutoff_time;
+            $data['wms_jx_generation_sunday_time'] = $wmsSetting->jx_generation_sunday_time;
+            $data['wms_jx_generation_sunday_cutoff_time'] = $wmsSetting->jx_generation_sunday_cutoff_time;
+            $data['wms_jx_transmission_time'] = $wmsSetting->jx_transmission_time;
+            $data['wms_jx_transmission_sunday_time'] = $wmsSetting->jx_transmission_sunday_time;
             $data['wms_transmission_contractor_id'] = $wmsSetting->transmission_contractor_id;
             $data['wms_format_strategy_class'] = $wmsSetting->format_strategy_class;
             $data['wms_is_receive_enabled'] = $wmsSetting->is_receive_enabled;
@@ -173,6 +180,13 @@ class EditContractor extends EditRecord
             'is_transmission_sat' => $data['wms_is_transmission_sat'] ?? false,
             'is_transmission_sun' => $data['wms_is_transmission_sun'] ?? false,
             'is_auto_transmission' => $data['wms_is_auto_transmission'] ?? false,
+            'is_jx_auto_generation_enabled' => $data['wms_is_jx_auto_generation_enabled'] ?? false,
+            'jx_generation_time' => $data['wms_jx_generation_time'] ?? null,
+            'jx_generation_cutoff_time' => $data['wms_jx_generation_cutoff_time'] ?? null,
+            'jx_generation_sunday_time' => $data['wms_jx_generation_sunday_time'] ?? null,
+            'jx_generation_sunday_cutoff_time' => $data['wms_jx_generation_sunday_cutoff_time'] ?? null,
+            'jx_transmission_time' => $data['wms_jx_transmission_time'] ?? null,
+            'jx_transmission_sunday_time' => $data['wms_jx_transmission_sunday_time'] ?? null,
             'transmission_contractor_id' => $data['wms_transmission_contractor_id'] ?? null,
             'format_strategy_class' => $data['wms_format_strategy_class'] ?? null,
             'is_receive_enabled' => $data['wms_is_receive_enabled'] ?? false,

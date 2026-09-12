@@ -155,6 +155,12 @@ npm run dev      # Vite dev サーバー（HMR）
 
 ## Development Commands
 
+### Local Web UI Login For Verification Agents
+- For authenticated browser checks in this repository, use the shared credentials from `/Users/jungsinyu/Projects/sakemaru-ai-core/.env`.
+- Read the login ID from `ADMIN_USER_EMAIL` and the password from `ADMIN_PASS` at runtime.
+- Never print, copy, commit, or hard-code the credential values.
+- Do not treat missing `ADMIN_USER_EMAIL` or `ADMIN_PASS` in this repository's own `.env` as a blocker; always check `/Users/jungsinyu/Projects/sakemaru-ai-core/.env` first unless the user explicitly provides different credentials.
+
 ```bash
 # Initial Setup
 composer setup  # Installs dependencies, generates key, runs migrations, builds assets

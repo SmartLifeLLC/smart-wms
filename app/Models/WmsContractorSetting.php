@@ -34,6 +34,13 @@ class WmsContractorSetting extends WmsModel
         'is_transmission_fri',
         'is_transmission_sat',
         'is_auto_transmission',
+        'is_jx_auto_generation_enabled',
+        'jx_generation_time',
+        'jx_generation_cutoff_time',
+        'jx_generation_sunday_time',
+        'jx_generation_sunday_cutoff_time',
+        'jx_transmission_time',
+        'jx_transmission_sunday_time',
         'auto_order_generation_time',
         'order_mail',
         'order_mail_from',
@@ -61,6 +68,7 @@ class WmsContractorSetting extends WmsModel
         'is_transmission_fri' => 'boolean',
         'is_transmission_sat' => 'boolean',
         'is_auto_transmission' => 'boolean',
+        'is_jx_auto_generation_enabled' => 'boolean',
         'is_receive_enabled' => 'boolean',
         'is_receive_sun' => 'boolean',
         'is_receive_mon' => 'boolean',
@@ -183,6 +191,27 @@ class WmsContractorSetting extends WmsModel
             6 => $this->is_transmission_sat,
             default => false,
         };
+    }
+
+    public function jxGenerationTimeForDay(int $dayOfWeek): ?string
+    {
+        return $dayOfWeek === 0
+            ? $this->jx_generation_sunday_time
+            : $this->jx_generation_time;
+    }
+
+    public function jxGenerationCutoffTimeForDay(int $dayOfWeek): ?string
+    {
+        return $dayOfWeek === 0
+            ? $this->jx_generation_sunday_cutoff_time
+            : $this->jx_generation_cutoff_time;
+    }
+
+    public function jxTransmissionTimeForDay(int $dayOfWeek): ?string
+    {
+        return $dayOfWeek === 0
+            ? $this->jx_transmission_sunday_time
+            : $this->jx_transmission_time;
     }
 
     /**

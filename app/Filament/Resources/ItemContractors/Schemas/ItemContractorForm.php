@@ -7,6 +7,7 @@ use App\Models\Sakemaru\Item;
 use App\Models\Sakemaru\Supplier;
 use App\Models\Sakemaru\Warehouse;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
@@ -24,12 +25,13 @@ class ItemContractorForm
                             ->label('商品')
                             ->searchable()
                             ->getSearchResultsUsing(fn (string $search) => Item::query()
-                                ->where('item_code', 'like', "%{$search}%")
-                                ->orWhere('item_name', 'like', "%{$search}%")
+                                ->where('code', 'like', "%{$search}%")
+                                ->orWhere('name', 'like', "%{$search}%")
+                                ->orderBy('code')
                                 ->limit(50)
-                                ->get()
-                                ->mapWithKeys(fn ($item) => [$item->id => "[{$item->item_code}] {$item->item_name}"]))
-                            ->getOptionLabelUsing(fn ($value) => ($item = Item::find($value)) ? "[{$item->item_code}] {$item->item_name}" : null)
+                                ->get(['id', 'code', 'name'])
+                                ->mapWithKeys(fn ($item) => [$item->id => "[{$item->code}] {$item->name}"]))
+                            ->getOptionLabelUsing(fn ($value) => ($item = Item::find($value)) ? "[{$item->code}] {$item->name}" : null)
                             ->required()
                             ->helperText('発注対象の商品を選択'),
 
@@ -56,6 +58,13 @@ class ItemContractorForm
                             ->searchable()
                             ->nullable()
                             ->helperText('仕入先（任意）'),
+
+                        Textarea::make('note')
+                            ->label('備考')
+                            ->nullable()
+                            ->rows(4)
+                            ->columnSpanFull()
+                            ->helperText('商品発注先に関するメモや備考を自由に入力できます'),
                     ])
                     ->columns(2),
 

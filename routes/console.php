@@ -36,9 +36,11 @@ Artisan::command('inspire', function () {
 | │                                    │                  │ wms_contractor_settings.transmission_time             │
 | │                                    │                  │ に基づきPENDING/APPROVED→確定→ファイル生成→送信      │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
-| │ wms:incoming-receive-scheduled      │ 5分ごと          │ 入荷データ自動受信                                     │
+| │ wms:incoming-receive-scheduled      │ 停止中           │ 入荷データ自動受信                                     │
 | │                                    │                  │ wms_contractor_settings.receive_time                  │
 | │                                    │                  │ に基づきJXデータ取得→パース→照合を実行               │
+| ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
+| │ wms:eos-incoming-receive-scheduled  │ 1分ごと          │ EOS受信設定に基づくJX受信→入荷確定→仕入自動生成       │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
 | │ wms:sync-sales-summaries --days=4  │ 09:30以降30分ごと│ trade_itemsから倉庫別商品別の出荷実績を更新            │
 | ├────────────────────────────────────┼──────────────────┼──────────────────────────────────────────────────────┤
@@ -105,20 +107,42 @@ Artisan::command('inspire', function () {
 //     ->withoutOverlapping()
 //     ->appendOutputTo(storage_path('logs/auto-order-transmit.log'));
 
-// 入荷データ自動受信スケジューラー (5分間隔)
-// ※ 仕入先ごとのreceive_timeに基づいてJXデータ取得→原本保存→パース→照合を実行
-Schedule::command('wms:incoming-receive-scheduled')
+Schedule::command('wms:generate-jx-order-documents')
     ->everyFiveMinutes()
+    ->when(fn () => (bool) config('jx.auto_generation_schedule_enabled'))
     ->onOneServer()
     ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
+    ->appendOutputTo(storage_path('logs/jx-order-generation.log'));
 
-// quantity_update_queue の一時的なSAVEPOINT失敗を再投入
-Schedule::command('wms:retry-transient-quantity-update-failures --limit=20 --min-age-seconds=10 --cooldown-minutes=60')
+Schedule::command('wms:transmit-jx-order-documents')
+    ->everyFiveMinutes()
+    ->when(fn () => (bool) config('jx.auto_transmission_schedule_enabled'))
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/jx-order-transmission.log'));
+
+// // 入荷データ自動受信スケジューラー (一時停止中: supplier_id未設定データの送信防止)
+// // ※ 再開時は以下のコメントアウトを戻す
+// Schedule::command('wms:incoming-receive-scheduled')
+//     ->everyFiveMinutes()
+//     ->onOneServer()
+//     ->withoutOverlapping()
+//     ->appendOutputTo(storage_path('logs/incoming-receive-scheduled.log'));
+
+Schedule::command('wms:eos-incoming-receive-scheduled')
     ->everyMinute()
     ->onOneServer()
     ->withoutOverlapping()
-    ->appendOutputTo(storage_path('logs/quantity-update-retry.log'));
+    ->appendOutputTo(storage_path('logs/eos-incoming-receive-scheduled.log'));
+
+// 倉庫移動候補（HANDY）の queue 処理結果同期 (5分間隔)
+Schedule::command('wms:sync-warehouse-transfer-candidates')
+    ->everyFiveMinutes()
+    ->onOneServer()
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/warehouse-transfer-candidate-sync.log'));
+
+// quantity_update_queue の一時的な失敗再投入コマンドは残すが、ai-core側の直列化対応を見るため自動実行は一時停止。
 
 // 倉庫別商品別の出荷実績サマリ更新（09:30以降30分ごと・過去4日分）
 // ※ --dry-run は確認用のため、スケジュールでは実更新を行う
@@ -129,7 +153,7 @@ Schedule::command('wms:sync-sales-summaries --days=4')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/wms-sales-summaries.log'));
 
-foreach (['06:00', '07:00', '08:00', '09:00'] as $time) {
+foreach (['07:00', '12:30'] as $time) {
     Schedule::command('wms:update-daily-stats --date='.now()->toDateString().' --force')
         ->dailyAt($time)
         ->onOneServer()

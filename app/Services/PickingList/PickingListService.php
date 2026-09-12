@@ -31,6 +31,16 @@ class PickingListService
             ->where(function ($q) {
                 $q->whereNull('pir.is_ready_to_shipment')
                     ->orWhere('pir.is_ready_to_shipment', false);
+            })
+            ->where(function ($q) {
+                $q->whereNull('pir.stock_transfer_id')
+                    ->orWhereExists(function ($query) {
+                        $query->select(DB::raw(1))
+                            ->from('stock_transfers as printable_st')
+                            ->whereColumn('printable_st.id', 'pir.stock_transfer_id')
+                            ->where('printable_st.is_delivered', false)
+                            ->where('printable_st.is_confirmed', false);
+                    });
             });
     }
 

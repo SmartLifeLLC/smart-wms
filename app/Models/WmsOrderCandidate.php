@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\AutoOrder\CandidateStatus;
 use App\Enums\AutoOrder\LotStatus;
+use App\Enums\AutoOrder\OrderChannel;
+use App\Enums\AutoOrder\OrderEntrySource;
 use App\Enums\AutoOrder\OriginType;
 use App\Enums\QuantityType;
 use App\Models\Concerns\HasOptimisticLock;
@@ -78,6 +80,8 @@ class WmsOrderCandidate extends WmsModel
         'modified_by',
         'modified_at',
         'origin_type',
+        'order_channel',
+        'entry_source',
         'exclusion_reason',
         'transmission_status',
         'transmitted_at',
@@ -95,6 +99,8 @@ class WmsOrderCandidate extends WmsModel
         'quantity_type' => QuantityType::class,
         'is_manually_modified' => 'boolean',
         'origin_type' => OriginType::class,
+        'order_channel' => OrderChannel::class,
+        'entry_source' => OrderEntrySource::class,
         'lot_fee_amount' => 'decimal:2',
         'demand_breakdown' => 'array',
         'current_effective_stock' => 'integer',
@@ -302,6 +308,29 @@ class WmsOrderCandidate extends WmsModel
         }
 
         return $this->calculationLog?->current_effective_stock;
+    }
+
+    /**
+     * 現時点の理論在庫（引当可能数）を基幹 real_stocks からライブ取得する
+     *
+     * 発注計算バッチ（OrderCandidateCalculationService）と同じく
+     * wms_v_stock_available の available_for_wms（= real_stocks.available_quantity =
+     * current_quantity - reserved_quantity）を real_stock_id で重複排除して集計する。
+     * バッチ時点のスナップショット（current_effective_stock）と異なり、常に最新値を返す。
+     */
+    public function liveAvailableStock(): int
+    {
+        $rows = \Illuminate\Support\Facades\DB::connection('sakemaru')->select(
+            'SELECT SUM(stock_qty) AS total
+             FROM (
+                 SELECT DISTINCT real_stock_id, available_for_wms AS stock_qty
+                 FROM wms_v_stock_available
+                 WHERE warehouse_id = ? AND item_id = ?
+             ) dedup',
+            [$this->warehouse_id, $this->item_id]
+        );
+
+        return (int) ($rows[0]->total ?? 0);
     }
 
     /**

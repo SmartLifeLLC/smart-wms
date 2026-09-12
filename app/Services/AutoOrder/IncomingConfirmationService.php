@@ -19,6 +19,14 @@ use Illuminate\Support\Facades\Log;
 class IncomingConfirmationService
 {
     /**
+     * 画面・作業データで入力された今回入荷数量から、確定時に保存する累計入荷数量を算出する。
+     */
+    public function resolveConfirmedReceivedQuantity(WmsOrderIncomingSchedule $schedule, int $receivedQuantity): int
+    {
+        return (int) $schedule->received_quantity + $receivedQuantity;
+    }
+
+    /**
      * 入庫予定を確定し、仕入れデータ作成キューに登録
      *
      * @param  WmsOrderIncomingSchedule  $schedule  入庫予定
@@ -47,17 +55,23 @@ class IncomingConfirmationService
 
         $receivedQuantity = $receivedQuantity ?? $schedule->expected_quantity;
         $actualDate = $actualDate ?? now()->format('Y-m-d');
+        $slipNumber = $this->resolvePurchaseSlipNumber($schedule, $actualDate);
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate, $expirationDate, $locationId, $pickerId) {
+        $confirmedSchedule = DB::connection('sakemaru')->transaction(function () use ($schedule, $confirmedBy, $receivedQuantity, $actualDate, $expirationDate, $locationId, $pickerId, $slipNumber) {
             // 入庫予定を更新（仕入れ連携は別途行う）
             $updateData = [
                 'received_quantity' => $receivedQuantity,
+                'shortage_quantity' => max(0, (int) $schedule->expected_quantity - (int) $receivedQuantity),
                 'actual_arrival_date' => $actualDate,
                 'status' => IncomingScheduleStatus::CONFIRMED,
                 'confirmed_at' => now(),
                 'confirmed_by' => $pickerId ? null : $confirmedBy,
                 'confirmed_picker_id' => $pickerId,
             ];
+
+            if ($slipNumber !== null) {
+                $updateData['slip_number'] = $slipNumber;
+            }
 
             // 賞味期限が指定された場合のみ更新
             if ($expirationDate !== null) {
@@ -86,6 +100,10 @@ class IncomingConfirmationService
 
             return $schedule->fresh();
         });
+
+        $this->recordPriceCheckSourcesForSchedule($confirmedSchedule);
+
+        return $confirmedSchedule;
     }
 
     /**
@@ -107,21 +125,39 @@ class IncomingConfirmationService
         ?int $locationId = null,
         ?int $pickerId = null
     ): WmsOrderIncomingSchedule {
-        if ($schedule->status === IncomingScheduleStatus::CONFIRMED) {
-            throw new \RuntimeException("Schedule {$schedule->id} is already fully confirmed");
-        }
-
-        if ($schedule->status === IncomingScheduleStatus::CANCELLED) {
-            throw new \RuntimeException("Schedule {$schedule->id} is cancelled");
-        }
-
         $actualDate = $actualDate ?? now()->format('Y-m-d');
-        $newReceivedQty = $schedule->received_quantity + $receivedQuantity;
 
-        return DB::connection('sakemaru')->transaction(function () use ($schedule, $newReceivedQty, $receivedQuantity, $confirmedBy, $actualDate, $expirationDate, $locationId, $pickerId) {
+        $updatedSchedule = DB::connection('sakemaru')->transaction(function () use ($schedule, $receivedQuantity, $confirmedBy, $actualDate, $expirationDate, $locationId, $pickerId) {
+            $lockedSchedule = WmsOrderIncomingSchedule::query()
+                ->whereKey($schedule->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($lockedSchedule->status === IncomingScheduleStatus::CONFIRMED) {
+                throw new \RuntimeException("Schedule {$lockedSchedule->id} is already fully confirmed");
+            }
+
+            if ($lockedSchedule->status === IncomingScheduleStatus::CANCELLED) {
+                throw new \RuntimeException("Schedule {$lockedSchedule->id} is cancelled");
+            }
+
+            $newReceivedQty = (int) $lockedSchedule->received_quantity + $receivedQuantity;
+
+            if ($this->shouldSplitPartialIncomingForPurchase($lockedSchedule, $newReceivedQty)) {
+                return $this->createPartialIncomingCompletionSchedule(
+                    $lockedSchedule,
+                    $newReceivedQty,
+                    $confirmedBy,
+                    $actualDate,
+                    $expirationDate,
+                    $locationId,
+                    $pickerId
+                );
+            }
+
             // ステータス判定
             $status = IncomingScheduleStatus::PARTIAL;
-            if ($newReceivedQty >= $schedule->expected_quantity) {
+            if ($newReceivedQty >= $lockedSchedule->expected_quantity) {
                 $status = IncomingScheduleStatus::CONFIRMED;
             }
 
@@ -147,19 +183,136 @@ class IncomingConfirmationService
                 $updateData['location_id'] = $locationId;
             }
 
-            $schedule->update($updateData);
+            $lockedSchedule->update($updateData);
 
             Log::info('Partial incoming recorded', [
-                'schedule_id' => $schedule->id,
+                'schedule_id' => $lockedSchedule->id,
                 'received_quantity' => $receivedQuantity,
                 'total_received' => $newReceivedQty,
-                'expected_quantity' => $schedule->expected_quantity,
+                'expected_quantity' => $lockedSchedule->expected_quantity,
                 'status' => $status->value,
                 'expiration_date' => $expirationDate,
             ]);
 
-            return $schedule->fresh();
+            return $lockedSchedule->fresh();
         });
+
+        $this->recordPriceCheckSourcesForSchedule($updatedSchedule);
+
+        return $updatedSchedule;
+    }
+
+    private function shouldSplitPartialIncomingForPurchase(WmsOrderIncomingSchedule $schedule, int $newReceivedQty): bool
+    {
+        $orderSource = $schedule->order_source instanceof OrderSource
+            ? $schedule->order_source
+            : OrderSource::tryFrom((string) $schedule->order_source);
+
+        return $newReceivedQty > 0
+            && $newReceivedQty < (int) $schedule->expected_quantity
+            && $schedule->purchase_queue_id === null
+            && in_array($orderSource, [
+                OrderSource::AUTO,
+                OrderSource::MANUAL,
+                OrderSource::RECEIVED,
+                OrderSource::APP_UNPLANNED,
+            ], true)
+            && ! $schedule->isEosSent()
+            && $schedule->transfer_candidate_id === null
+            && $schedule->source_warehouse_id === null
+            && $schedule->stock_transfer_id === null;
+    }
+
+    private function createPartialIncomingCompletionSchedule(
+        WmsOrderIncomingSchedule $schedule,
+        int $confirmedQuantity,
+        int $confirmedBy,
+        string $actualDate,
+        ?string $expirationDate,
+        ?int $locationId,
+        ?int $pickerId
+    ): WmsOrderIncomingSchedule {
+        $slipNumber = $this->resolvePurchaseSlipNumber($schedule, $actualDate)
+            ?? WmsOrderIncomingSchedule::generateSlipNumber($schedule->order_date?->format('Y-m-d') ?? $actualDate);
+        $remainingQuantity = max(0, (int) $schedule->expected_quantity - $confirmedQuantity);
+
+        $confirmedSchedule = WmsOrderIncomingSchedule::create([
+            'warehouse_id' => $schedule->warehouse_id,
+            'item_id' => $schedule->item_id,
+            'item_code' => $schedule->item_code,
+            'search_code' => $schedule->search_code,
+            'contractor_id' => $schedule->contractor_id,
+            'supplier_id' => $schedule->supplier_id,
+            'location_id' => $locationId ?? $schedule->location_id,
+            'order_candidate_id' => $schedule->order_candidate_id,
+            'manual_order_number' => $schedule->manual_order_number,
+            'order_source' => $schedule->order_source,
+            'slip_number' => $slipNumber,
+            'expected_quantity' => $confirmedQuantity,
+            'received_quantity' => $confirmedQuantity,
+            'quantity_type' => $schedule->quantity_type,
+            'order_date' => $schedule->order_date,
+            'expected_arrival_date' => $schedule->expected_arrival_date,
+            'actual_arrival_date' => $actualDate,
+            'expiration_date' => $expirationDate ?? $schedule->expiration_date,
+            'status' => IncomingScheduleStatus::CONFIRMED,
+            'confirmed_at' => now(),
+            'confirmed_by' => $pickerId ? null : $confirmedBy,
+            'confirmed_picker_id' => $pickerId,
+            'is_receive_matched' => (bool) $schedule->is_receive_matched,
+            'shipped_quantity' => 0,
+            'unit_price' => $schedule->unit_price,
+            'case_price' => $schedule->case_price,
+            'partner_unit_price' => $schedule->partner_unit_price,
+            'partner_case_price' => $schedule->partner_case_price,
+            'price_type' => $schedule->price_type,
+            'shortage_quantity' => 0,
+            'note' => $schedule->note,
+        ]);
+
+        $schedule->update([
+            'slip_number' => $slipNumber,
+            'expected_quantity' => $remainingQuantity,
+            'received_quantity' => 0,
+            'shipped_quantity' => 0,
+            'shortage_quantity' => 0,
+            'actual_arrival_date' => null,
+            'status' => IncomingScheduleStatus::PENDING,
+            'confirmed_at' => null,
+            'confirmed_by' => null,
+            'confirmed_picker_id' => null,
+        ]);
+
+        Log::info('Partial incoming split for purchase transmission', [
+            'source_schedule_id' => $schedule->id,
+            'confirmed_schedule_id' => $confirmedSchedule->id,
+            'slip_number' => $slipNumber,
+            'confirmed_quantity' => $confirmedQuantity,
+            'remaining_quantity' => $remainingQuantity,
+        ]);
+
+        return $confirmedSchedule->fresh();
+    }
+
+    private function resolvePurchaseSlipNumber(WmsOrderIncomingSchedule $schedule, string $actualDate): ?string
+    {
+        if (filled($schedule->slip_number)) {
+            return (string) $schedule->slip_number;
+        }
+
+        $orderSource = $schedule->order_source instanceof OrderSource
+            ? $schedule->order_source
+            : OrderSource::tryFrom((string) $schedule->order_source);
+
+        if (! in_array($orderSource, [OrderSource::AUTO, OrderSource::MANUAL, OrderSource::RECEIVED, OrderSource::APP_UNPLANNED], true)) {
+            return null;
+        }
+
+        if ($schedule->transfer_candidate_id !== null || $schedule->source_warehouse_id !== null || $schedule->stock_transfer_id !== null) {
+            return null;
+        }
+
+        return WmsOrderIncomingSchedule::generateSlipNumber($schedule->order_date?->format('Y-m-d') ?? $actualDate);
     }
 
     /**
@@ -296,6 +449,18 @@ class IncomingConfirmationService
             'delivery_course_id' => $deliveryCourseId,
             'received_quantity' => $receivedQuantity ?? $schedule->expected_quantity,
         ]);
+    }
+
+    private function recordPriceCheckSourcesForSchedule(WmsOrderIncomingSchedule $schedule): void
+    {
+        try {
+            app(IncomingPriceCheckSourceRecorder::class)->recordForSchedule($schedule);
+        } catch (\Throwable $throwable) {
+            Log::warning('[IncomingConfirmationService] 単価チェック原本保存に失敗しました', [
+                'schedule_id' => $schedule->id,
+                'error' => $throwable->getMessage(),
+            ]);
+        }
     }
 
     /**

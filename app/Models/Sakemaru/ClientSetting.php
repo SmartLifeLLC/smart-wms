@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class ClientSetting extends CustomModel
 {
@@ -15,11 +16,15 @@ class ClientSetting extends CustomModel
 
     private const CACHE_TTL_SECONDS = 600;
 
+    private const IN_MEMORY_CACHE_TTL_SECONDS = 60;
+
     private const CACHE_KEY_FIRST = 'client_settings:first';
 
     private const CACHE_KEY_CLIENT_PREFIX = 'client_settings:client:';
 
     private static array $cachedSettings = [];
+
+    private static array $cachedSettingStoredAt = [];
 
     protected $guarded = [];
 
@@ -53,10 +58,12 @@ class ClientSetting extends CustomModel
     public static function clearCachedSetting(?int $clientId = null): void
     {
         unset(self::$cachedSettings[self::CACHE_KEY_FIRST]);
+        unset(self::$cachedSettingStoredAt[self::CACHE_KEY_FIRST]);
         Cache::forget(self::CACHE_KEY_FIRST);
 
         $clientKey = self::CACHE_KEY_CLIENT_PREFIX.($clientId ?? 'null');
         unset(self::$cachedSettings[$clientKey]);
+        unset(self::$cachedSettingStoredAt[$clientKey]);
         Cache::forget($clientKey);
     }
 
@@ -99,6 +106,30 @@ class ClientSetting extends CustomModel
     public static function systemDateYMD(): string
     {
         return self::systemDate()->format('Y-m-d');
+    }
+
+    public static function freshSystemDate(bool $default_now = false, ?string $context = null): ?Carbon
+    {
+        $setting = self::query()->first();
+
+        if ($setting?->system_date) {
+            self::detectStaleFirstCache($setting, $context);
+            self::storeInMemorySetting(self::CACHE_KEY_FIRST, $setting);
+            Cache::put(self::CACHE_KEY_FIRST, $setting, self::CACHE_TTL_SECONDS);
+
+            return new Carbon($setting->system_date);
+        }
+
+        if ($default_now) {
+            return TimeZone::TOKYO->now();
+        }
+
+        return null;
+    }
+
+    public static function freshSystemDateYMD(?string $context = null): string
+    {
+        return self::freshSystemDate(context: $context)->format('Y-m-d');
     }
 
     public static function systemMonth(): ?int
@@ -174,15 +205,86 @@ class ClientSetting extends CustomModel
 
     private static function rememberSetting(string $key, callable $resolver): ?self
     {
-        if (array_key_exists($key, self::$cachedSettings)) {
+        if (array_key_exists($key, self::$cachedSettings) && self::isInMemoryCacheFresh($key)) {
             return self::$cachedSettings[$key];
         }
 
-        return self::$cachedSettings[$key] = Cache::remember(
+        $previous = self::$cachedSettings[$key] ?? null;
+        unset(self::$cachedSettings[$key], self::$cachedSettingStoredAt[$key]);
+
+        $setting = self::resolveSetting($key, $resolver);
+
+        self::storeInMemorySetting($key, $setting);
+        self::logInMemoryCacheRefreshIfChanged($key, $previous, $setting);
+
+        return $setting;
+    }
+
+    private static function resolveSetting(string $key, callable $resolver): ?self
+    {
+        if ($key === self::CACHE_KEY_FIRST) {
+            $setting = $resolver();
+            Cache::put($key, $setting, self::CACHE_TTL_SECONDS);
+
+            return $setting;
+        }
+
+        return Cache::remember(
             $key,
             self::CACHE_TTL_SECONDS,
             $resolver,
         );
+    }
+
+    private static function isInMemoryCacheFresh(string $key): bool
+    {
+        $storedAt = self::$cachedSettingStoredAt[$key] ?? null;
+
+        return $storedAt !== null && (time() - $storedAt) < self::IN_MEMORY_CACHE_TTL_SECONDS;
+    }
+
+    private static function storeInMemorySetting(string $key, ?self $setting): void
+    {
+        self::$cachedSettings[$key] = $setting;
+        self::$cachedSettingStoredAt[$key] = time();
+    }
+
+    private static function detectStaleFirstCache(self $freshSetting, ?string $context = null): void
+    {
+        $cached = self::$cachedSettings[self::CACHE_KEY_FIRST] ?? null;
+
+        if (! $cached instanceof self) {
+            return;
+        }
+
+        self::logInMemoryCacheRefreshIfChanged(self::CACHE_KEY_FIRST, $cached, $freshSetting, $context);
+    }
+
+    private static function logInMemoryCacheRefreshIfChanged(
+        string $key,
+        ?self $previous,
+        ?self $current,
+        ?string $context = null
+    ): void {
+        if (! $previous instanceof self || ! $current instanceof self) {
+            return;
+        }
+
+        $previousSystemDate = $previous->system_date ? Carbon::parse($previous->system_date)->format('Y-m-d') : null;
+        $currentSystemDate = $current->system_date ? Carbon::parse($current->system_date)->format('Y-m-d') : null;
+
+        if ($previousSystemDate === $currentSystemDate) {
+            return;
+        }
+
+        Log::warning('Stale ClientSetting in-memory cache detected', [
+            'cache_key' => $key,
+            'context' => $context,
+            'previous_setting_id' => $previous->getKey(),
+            'current_setting_id' => $current->getKey(),
+            'previous_system_date' => $previousSystemDate,
+            'current_system_date' => $currentSystemDate,
+        ]);
     }
 
     public static function authSetting(): ?self

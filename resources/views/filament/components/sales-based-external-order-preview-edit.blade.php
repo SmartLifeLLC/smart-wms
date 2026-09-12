@@ -12,7 +12,8 @@
         expectedArrivalDisplayValue: '',
         expectedArrivalPreviousValue: '',
         formatNumber(value) {
-            return new Intl.NumberFormat('ja-JP').format(Number(value || 0));
+            const number = Number(value);
+            return new Intl.NumberFormat('ja-JP').format(Number.isFinite(number) ? number : 0);
         },
         conditionValue(key) {
             return this.conditions[key] || '-';
@@ -254,7 +255,7 @@
                 <span class="font-semibold" x-text="conditionValue('target_warehouse_name')"></span>
             </span>
             <span>
-                選択中倉庫:
+                発注店:
                 <span class="font-semibold" x-text="conditionValue('selected_warehouse_name')"></span>
             </span>
             <span>

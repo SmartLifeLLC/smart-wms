@@ -27,6 +27,7 @@ class WmsIncomingReceivedDetail extends WmsModel
         'is_shortage',
         'match_status',
         'matched_item_id',
+        'matched_schedule_id',
         'expected_quantity',
     ];
 
@@ -39,6 +40,7 @@ class WmsIncomingReceivedDetail extends WmsModel
         'd_amount' => 'integer',
         'total_quantity' => 'integer',
         'is_shortage' => 'boolean',
+        'matched_schedule_id' => 'integer',
         'expected_quantity' => 'integer',
     ];
 
@@ -55,5 +57,10 @@ class WmsIncomingReceivedDetail extends WmsModel
     public function matchedItem(): BelongsTo
     {
         return $this->belongsTo(\App\Models\Sakemaru\Item::class, 'matched_item_id');
+    }
+
+    public function matchedSchedule(): BelongsTo
+    {
+        return $this->belongsTo(WmsOrderIncomingSchedule::class, 'matched_schedule_id');
     }
 }

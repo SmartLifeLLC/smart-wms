@@ -115,11 +115,11 @@
                     <div class="text-lg font-bold text-gray-900 dark:text-white">{{ number_format($orderLoose) }}</div>
                 </div>
                 <div class="text-center bg-gray-50 dark:bg-white/5 rounded-lg py-2 px-1">
-                    <div class="text-xs text-gray-500 dark:text-gray-400">総バラ数</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">発注総バラ</div>
                     <div class="text-lg font-bold text-gray-900 dark:text-white">{{ number_format($totalPieces) }}</div>
                 </div>
                 <div class="text-center rounded-lg py-2 px-1 {{ $receivedQuantity > 0 ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-gray-50 dark:bg-white/5' }}">
-                    <div class="text-xs {{ $receivedQuantity > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400' }}">総入荷済</div>
+                    <div class="text-xs {{ $receivedQuantity > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-gray-400' }}">入荷総バラ</div>
                     <div class="text-lg font-bold {{ $receivedQuantity > 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-900 dark:text-white' }}">{{ number_format($receivedQuantity) }}</div>
                 </div>
             </div>

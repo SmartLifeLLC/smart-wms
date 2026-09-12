@@ -263,18 +263,18 @@
   <span class="key">"jan_codes"</span>: {
     <span class="comment">// 1つのJAN → 1商品（通常パターン）</span>
     <span class="str">"4901234567890"</span>: [
-      { <span class="key">"item_id"</span>: <span class="num">100</span>, <span class="key">"quantity_type"</span>: <span class="str">"PIECE"</span> }
+      { <span class="key">"i"</span>: <span class="num">100</span>, <span class="key">"ct"</span>: <span class="str">"JAN"</span>, <span class="key">"t"</span>: <span class="str">"0"</span>, <span class="key">"q"</span>: <span class="num">12</span> }
     ],
 
     <span class="comment">// ケースJAN</span>
     <span class="str">"14901234567897"</span>: [
-      { <span class="key">"item_id"</span>: <span class="num">100</span>, <span class="key">"quantity_type"</span>: <span class="str">"CASE"</span> }
+      { <span class="key">"i"</span>: <span class="num">100</span>, <span class="key">"ct"</span>: <span class="str">"JAN"</span>, <span class="key">"t"</span>: <span class="str">"1"</span>, <span class="key">"q"</span>: <span class="num">6</span> }
     ],
 
     <span class="comment">// 1つのJAN → 複数商品（Android側で選択UI表示）</span>
     <span class="str">"4902110352689"</span>: [
-      { <span class="key">"item_id"</span>: <span class="num">200</span>, <span class="key">"quantity_type"</span>: <span class="str">"PIECE"</span> },
-      { <span class="key">"item_id"</span>: <span class="num">301</span>, <span class="key">"quantity_type"</span>: <span class="str">"PIECE"</span> }
+      { <span class="key">"i"</span>: <span class="num">200</span>, <span class="key">"ct"</span>: <span class="str">"JAN"</span>, <span class="key">"t"</span>: <span class="str">"0"</span>, <span class="key">"q"</span>: <span class="num">12</span> },
+      { <span class="key">"i"</span>: <span class="num">301</span>, <span class="key">"ct"</span>: <span class="str">"JAN"</span>, <span class="key">"t"</span>: <span class="str">"0"</span>, <span class="key">"q"</span>: <span class="num">24</span> }
     ]
   }
 }</pre>
@@ -284,10 +284,16 @@
     <thead><tr><th>フィールド</th><th>型</th><th>説明</th></tr></thead>
     <tbody>
       <tr><td>キー（JANコード）</td><td><code>string</code></td><td>JANコード / ITFコード / 自社コード等</td></tr>
-      <tr><td><code>item_id</code></td><td><code>integer</code></td><td>商品ID。<code>items</code> の <code>item_id</code> と一致</td></tr>
-      <tr><td><code>quantity_type</code></td><td><code>string</code></td><td><code>PIECE</code> = バラ / <code>CASE</code> = ケース</td></tr>
+      <tr><td><code>i</code></td><td><code>integer</code></td><td>商品ID。<code>items</code> の <code>item_id</code> と一致</td></tr>
+      <tr><td><code>ct</code></td><td><code>string</code></td><td>コード種別。例: <code>JAN</code> / <code>OTHER</code></td></tr>
+      <tr><td><code>t</code></td><td><code>string</code></td><td><code>0</code> = バラ / <code>1</code> = ケース / <code>2</code> = ボール / <code>9</code> = その他</td></tr>
+      <tr><td><code>q</code></td><td><code>integer</code></td><td>ケース入力時の換算入数。<code>t=0</code> は <code>items.capacity_case</code>、<code>t=1</code> はJANコード別入数</td></tr>
     </tbody>
   </table>
+
+  <div class="box box-info">
+    <b>入数の扱い:</b> バラJAN（<code>t=0</code>）を読んだ場合でも、表示とケース入力の換算には商品の <code>items.capacity_case</code> を使う。ケースJAN（<code>t=1</code>）はJANごとの入数を使う。
+  </div>
 
   <div class="box box-warn">
     <b>複数ヒット時の対応:</b> 同一JANコードに複数の <code>item_id</code> が紐づく場合がある。Handy側で候補リストを表示し、ユーザーに選択させること。
@@ -312,9 +318,9 @@
       <div class="diff-after">
         <div class="diff-label">After (新規)</div>
 "search_codes": [<br>
-&nbsp; { "code": "4901234567890", "quantity_type": "PIECE" },<br>
-&nbsp; { "code": "14901234567897", "quantity_type": "CASE" },<br>
-&nbsp; { "code": "10001", "quantity_type": "PIECE" }<br>
+&nbsp; { "c": "4901234567890", "ct": "JAN", "t": "0", "q": 12 },<br>
+&nbsp; { "c": "14901234567897", "ct": "JAN", "t": "1", "q": 6 },<br>
+&nbsp; { "c": "10001", "ct": "OTHER", "t": "0", "q": 12 }<br>
 ]
       </div>
     </div>
@@ -323,8 +329,10 @@
   <table>
     <thead><tr><th>フィールド</th><th>型</th><th>説明</th></tr></thead>
     <tbody>
-      <tr><td><code>search_codes[].code</code></td><td><code>string</code></td><td>コード値</td></tr>
-      <tr><td><code>search_codes[].quantity_type</code></td><td><code>string</code></td><td><code>PIECE</code> = バラ / <code>CASE</code> = ケース</td></tr>
+      <tr><td><code>search_codes[].c</code></td><td><code>string</code></td><td>コード値</td></tr>
+      <tr><td><code>search_codes[].ct</code></td><td><code>string</code></td><td>コード種別</td></tr>
+      <tr><td><code>search_codes[].t</code></td><td><code>string</code></td><td><code>0</code> = バラ / <code>1</code> = ケース / <code>2</code> = ボール / <code>9</code> = その他</td></tr>
+      <tr><td><code>search_codes[].q</code></td><td><code>integer</code></td><td>ケース入力時の換算入数。バラJANは <code>items.capacity_case</code>、ケースJANはJANコード別入数</td></tr>
     </tbody>
   </table>
 

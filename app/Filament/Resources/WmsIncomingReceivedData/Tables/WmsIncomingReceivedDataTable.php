@@ -5,6 +5,7 @@ namespace App\Filament\Resources\WmsIncomingReceivedData\Tables;
 use App\Enums\AutoOrder\OrderSource;
 use App\Enums\PaginationOptions;
 use App\Models\WmsIncomingImportError;
+use App\Models\WmsIncomingReceivedFile;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingReceiveService;
 use Filament\Actions\Action;
@@ -38,17 +39,19 @@ class WmsIncomingReceivedDataTable
                     ->label('ステータス')
                     ->badge()
                     ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'PENDING' => '未照合',
-                        'MATCHED' => '照合済み',
-                        'APPLIED' => '適用済み',
-                        'ERROR' => 'エラー',
+                        WmsIncomingReceivedFile::STATUS_PENDING => '未照合',
+                        WmsIncomingReceivedFile::STATUS_MATCHED => '照合済み',
+                        WmsIncomingReceivedFile::STATUS_APPLIED => '適用済み',
+                        WmsIncomingReceivedFile::STATUS_ERROR => 'エラー',
+                        WmsIncomingReceivedFile::STATUS_SKIPPED => '対象外',
                         default => $state,
                     })
                     ->color(fn (string $state): string => match ($state) {
-                        'PENDING' => 'warning',
-                        'MATCHED' => 'info',
-                        'APPLIED' => 'success',
-                        'ERROR' => 'danger',
+                        WmsIncomingReceivedFile::STATUS_PENDING => 'warning',
+                        WmsIncomingReceivedFile::STATUS_MATCHED => 'info',
+                        WmsIncomingReceivedFile::STATUS_APPLIED => 'success',
+                        WmsIncomingReceivedFile::STATUS_ERROR => 'danger',
+                        WmsIncomingReceivedFile::STATUS_SKIPPED => 'gray',
                         default => 'gray',
                     })
                     ->sortable()
@@ -153,10 +156,11 @@ class WmsIncomingReceivedDataTable
                 SelectFilter::make('status')
                     ->label('ステータス')
                     ->options([
-                        'PENDING' => '未照合',
-                        'MATCHED' => '照合済み',
-                        'APPLIED' => '適用済み',
-                        'ERROR' => 'エラー',
+                        WmsIncomingReceivedFile::STATUS_PENDING => '未照合',
+                        WmsIncomingReceivedFile::STATUS_MATCHED => '照合済み',
+                        WmsIncomingReceivedFile::STATUS_APPLIED => '適用済み',
+                        WmsIncomingReceivedFile::STATUS_ERROR => 'エラー',
+                        WmsIncomingReceivedFile::STATUS_SKIPPED => '対象外',
                     ]),
 
                 SelectFilter::make('format_type')

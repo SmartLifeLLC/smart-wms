@@ -52,7 +52,8 @@ class PrintRequestService
 
             // 対象のピッキングタスクを取得
             $query = WmsPickingTask::where('delivery_course_id', $deliveryCourseId)
-                ->where('shipment_date', $shipmentDate);
+                ->where('shipment_date', $shipmentDate)
+                ->where('warehouse_id', $warehouseId);
 
             if ($waveId) {
                 $query->where('wave_id', $waveId);

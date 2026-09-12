@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * JX送受信履歴
@@ -62,6 +64,25 @@ class WmsJxTransmissionLog extends WmsModel
         return $this->belongsTo(WmsOrderJxSetting::class, 'jx_setting_id');
     }
 
+    public function eosImportBatches(): HasMany
+    {
+        return $this->hasMany(WmsJxEosImportBatch::class, 'wms_jx_transmission_log_id');
+    }
+
+    public function currentEosImport(): HasOne
+    {
+        return $this->hasOne(WmsJxEosImportBatch::class, 'wms_jx_transmission_log_id')
+            ->where('is_current', true)
+            ->latestOfMany();
+    }
+
+    public function incomingReceivedFile(): HasOne
+    {
+        return $this->hasOne(WmsIncomingReceivedFile::class, 'received_message_id', 'message_id')
+            ->where('format_type', 'JX')
+            ->latestOfMany();
+    }
+
     /**
      * 送信ログのスコープ
      */
@@ -76,6 +97,26 @@ class WmsJxTransmissionLog extends WmsModel
     public function scopeReceive(Builder $query): Builder
     {
         return $query->where('direction', self::DIRECTION_RECEIVE);
+    }
+
+    public function scopeEosImportTarget(Builder $query): Builder
+    {
+        return $query
+            ->where('direction', self::DIRECTION_RECEIVE)
+            ->where('operation_type', self::OPERATION_GET)
+            ->where('status', self::STATUS_SUCCESS)
+            ->whereNotNull('file_path')
+            ->where('file_path', '<>', '');
+    }
+
+    public function scopePendingEosIncomingImport(Builder $query): Builder
+    {
+        return $query
+            ->eosImportTarget()
+            ->whereDoesntHave(
+                'incomingReceivedFile',
+                fn (Builder $query): Builder => $query->whereIn('status', WmsIncomingReceivedFile::TERMINAL_STATUSES)
+            );
     }
 
     /**

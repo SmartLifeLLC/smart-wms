@@ -9,6 +9,7 @@ use App\Filament\Support\Tables\Columns\QuantityTypeColumn;
 use App\Models\Sakemaru\Warehouse;
 use App\Models\WmsShortage;
 use App\Models\WmsShortageAllocation;
+use App\Services\QuantityUpdate\AllocationSyncService;
 use App\Services\Shortage\ProxyShipmentService;
 use App\Services\Shortage\StockTransferQueueService;
 use Filament\Actions\Action;
@@ -37,6 +38,12 @@ class WmsShortageAllocationsTable
             ->columns([
                 TextColumn::make('id')
                     ->label('ID')
+                    ->sortable()
+                    ->alignment('center'),
+
+                TextColumn::make('shipment_date')
+                    ->label('出荷日')
+                    ->date('Y-m-d')
                     ->sortable()
                     ->alignment('center'),
 
@@ -247,15 +254,19 @@ class WmsShortageAllocationsTable
 
                         $record->save();
 
-                        // 倉庫移動伝票キューを作成
+                        // 倉庫移動伝票キューと最終数量同期キューを作成
                         try {
                             $queueService = app(StockTransferQueueService::class);
                             $queueId = $queueService->createStockTransferQueue($record);
+                            $syncQueue = app(AllocationSyncService::class)->syncAllocationIfReady($record->fresh() ?? $record);
 
                             $statusLabel = $record->status === 'FULFILLED' ? '完了' : '欠品確定';
                             $message = "横持ち出荷を{$statusLabel}しました";
                             if ($queueId) {
                                 $message .= "\n倉庫移動伝票キューID: {$queueId}";
+                            }
+                            if ($syncQueue) {
+                                $message .= "\n数量同期キューID: {$syncQueue->id}";
                             }
 
                             Notification::make()
@@ -265,7 +276,7 @@ class WmsShortageAllocationsTable
                                 ->send();
                         } catch (\Exception $e) {
                             Notification::make()
-                                ->title('完了しましたが、倉庫移動伝票の作成でエラーが発生しました')
+                                ->title('完了しましたが、キュー作成でエラーが発生しました')
                                 ->body($e->getMessage())
                                 ->warning()
                                 ->send();
@@ -623,8 +634,10 @@ class WmsShortageAllocationsTable
                             $shortageCount = 0;
                             $queueCreatedCount = 0;
                             $queueErrorCount = 0;
+                            $syncQueueCreatedCount = 0;
 
                             $queueService = app(StockTransferQueueService::class);
+                            $allocationSyncService = app(AllocationSyncService::class);
 
                             foreach ($records as $record) {
                                 // 既に完了している、またはステータスがPICKING/RESERVED以外の場合はスキップ
@@ -648,15 +661,19 @@ class WmsShortageAllocationsTable
                                 $record->save();
                                 $completedCount++;
 
-                                // 倉庫移動伝票キューを作成
+                                // 倉庫移動伝票キューと最終数量同期キューを作成
                                 try {
                                     $queueId = $queueService->createStockTransferQueue($record);
                                     if ($queueId) {
                                         $queueCreatedCount++;
                                     }
+                                    $syncQueue = $allocationSyncService->syncAllocationIfReady($record->fresh() ?? $record);
+                                    if ($syncQueue) {
+                                        $syncQueueCreatedCount++;
+                                    }
                                 } catch (\Exception $e) {
                                     $queueErrorCount++;
-                                    \Log::error('Failed to create stock transfer queue in bulk action', [
+                                    \Log::error('Failed to create queue in bulk proxy shipment completion', [
                                         'allocation_id' => $record->id,
                                         'error' => $e->getMessage(),
                                     ]);
@@ -667,8 +684,11 @@ class WmsShortageAllocationsTable
                             if ($queueCreatedCount > 0) {
                                 $message .= "\n倉庫移動伝票キュー作成: {$queueCreatedCount}件";
                             }
+                            if ($syncQueueCreatedCount > 0) {
+                                $message .= "\n数量同期キュー作成: {$syncQueueCreatedCount}件";
+                            }
                             if ($queueErrorCount > 0) {
-                                $message .= "\n倉庫移動伝票キューエラー: {$queueErrorCount}件";
+                                $message .= "\nキューエラー: {$queueErrorCount}件";
                             }
 
                             Notification::make()

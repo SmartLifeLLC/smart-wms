@@ -5,7 +5,6 @@ namespace App\Filament\Resources\RealStocks\Tables;
 use App\Enums\PaginationOptions;
 use App\Filament\Concerns\HasExportAction;
 use App\Models\Sakemaru\ClientSetting;
-use App\Models\Sakemaru\Location;
 use App\Models\Sakemaru\RealStock;
 use App\Models\Sakemaru\RealStockLot;
 use Filament\Actions\Action;
@@ -16,6 +15,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 class RealStocksTable
@@ -27,6 +27,9 @@ class RealStocksTable
         return $table
             ->striped()
             ->extraAttributes(['class' => 'sticky-actions'])
+            ->modifyQueryUsing(fn (Builder $query) => $query->addSelect([
+                'default_location_code' => self::defaultLocationCodeSubquery(),
+            ]))
             ->defaultPaginationPageOption(PaginationOptions::DEFAULT)
             ->paginationPageOptions(PaginationOptions::all())
             ->columns([
@@ -35,22 +38,9 @@ class RealStocksTable
                     ->sortable()
                     ->searchable(),
 
-                TextColumn::make('active_lot_locations')
+                TextColumn::make('default_location_code')
                     ->label('ロケーション')
-                    ->state(function (RealStock $record): array {
-                        $record->loadMissing('activeLots.location');
-
-                        return $record->activeLots
-                            ->map(fn (RealStockLot $lot) => $lot->location
-                                ? Location::formatCode($lot->location->code1, $lot->location->code2, $lot->location->code3)
-                                : null)
-                            ->filter()
-                            ->unique()
-                            ->values()
-                            ->all();
-                    })
-                    ->listWithLineBreaks()
-                    ->limitList(3),
+                    ->placeholder('-'),
 
                 TextColumn::make('item.name')
                     ->label('商品名')
@@ -124,8 +114,11 @@ class RealStocksTable
                     ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
                     ->modalFooterActionsAlignment(Alignment::End)
                     ->modalContent(fn (RealStock $record): View => view(
-                        'filament.resources.real-stocks.modal.stock-detail',
-                        self::getModalData($record)
+                        'filament.resources.real-stocks.modal.stock-form-iframe',
+                        [
+                            'record' => $record,
+                            'coreStockUrl' => self::getCoreStockUrl($record),
+                        ]
                     ))
                     ->modalSubmitAction(false)
                     ->modalCancelActionLabel('閉じる'),
@@ -137,6 +130,22 @@ class RealStocksTable
                 ]),
             ])
             ->defaultSort('created_at', 'desc');
+    }
+
+    private static function defaultLocationCodeSubquery()
+    {
+        return DB::connection('sakemaru')
+            ->table('item_incoming_default_locations as idl')
+            ->join('locations as l', 'idl.location_id', '=', 'l.id')
+            ->selectRaw("TRIM(CONCAT_WS(' ', NULLIF(l.code1, ''), NULLIF(l.code2, ''), NULLIF(l.code3, '')))")
+            ->whereColumn('idl.warehouse_id', 'real_stocks.warehouse_id')
+            ->whereColumn('idl.item_id', 'real_stocks.item_id')
+            ->limit(1);
+    }
+
+    private static function getCoreStockUrl(RealStock $record): string
+    {
+        return rtrim((string) config('app.core_url'), '/')."/stocks/form/{$record->getKey()}";
     }
 
     /**

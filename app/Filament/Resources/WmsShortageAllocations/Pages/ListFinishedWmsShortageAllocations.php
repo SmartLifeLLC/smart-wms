@@ -258,9 +258,10 @@ class ListFinishedWmsShortageAllocations extends ListRecords
 
                         $warehouse = Warehouse::find($warehouseId);
                         $warehouseName = $warehouse ? $warehouse->name : "ID: {$warehouseId}";
+                        $shipmentDate = ClientSetting::systemDate(true)?->toDateString();
 
                         $syncService = app(AllocationSyncService::class);
-                        $unsyncedCount = $syncService->getUnsyncedCount($warehouseId);
+                        $unsyncedCount = $shipmentDate ? $syncService->getUnsyncedCount($warehouseId, $shipmentDate) : 0;
 
                         if ($unsyncedCount === 0) {
                             return [
@@ -269,6 +270,7 @@ class ListFinishedWmsShortageAllocations extends ListRecords
                                     ->content(new HtmlString(
                                         '<div class="py-4 text-center">'
                                         .'<div class="text-base font-semibold text-gray-600 dark:text-gray-300">【'.$warehouseName.'】</div>'
+                                        .'<div class="mt-1 text-xs text-gray-400">出荷日: '.e($shipmentDate ?? '未設定').'</div>'
                                         .'<div class="mt-2 text-sm text-gray-400">同期が必要な欠品データはありません。</div>'
                                         .'</div>'
                                     )),
@@ -281,6 +283,7 @@ class ListFinishedWmsShortageAllocations extends ListRecords
                                 ->content(new HtmlString(
                                     '<div class="py-4 text-center">'
                                     .'<div class="text-base font-semibold text-gray-700 dark:text-gray-200">【'.$warehouseName.'】</div>'
+                                    .'<div class="mt-1 text-xs text-gray-500 dark:text-gray-400">出荷日: '.e($shipmentDate ?? '未設定').'</div>'
                                     .'<div class="mt-3 text-lg font-bold text-orange-600 dark:text-orange-400">未同期の欠品データが <span class="text-2xl">'.$unsyncedCount.'</span> 件あります。</div>'
                                     .'<div class="mt-2 text-sm text-gray-500 dark:text-gray-400">ai-coreへ数量修正データを同期しますか？</div>'
                                     .'</div>'
@@ -290,8 +293,9 @@ class ListFinishedWmsShortageAllocations extends ListRecords
                     ->modalFooterActionsAlignment(Alignment::End)
                     ->modalSubmitAction(function ($action) {
                         $warehouseId = $this->resolveWarehouseIdFromPresetView();
+                        $shipmentDate = ClientSetting::systemDate(true)?->toDateString();
                         $syncService = app(AllocationSyncService::class);
-                        $unsyncedCount = $warehouseId ? $syncService->getUnsyncedCount($warehouseId) : 0;
+                        $unsyncedCount = ($warehouseId && $shipmentDate) ? $syncService->getUnsyncedCount($warehouseId, $shipmentDate) : 0;
 
                         if ($unsyncedCount === 0) {
                             return $action->makeModalSubmitAction('submit', [])
@@ -315,7 +319,14 @@ class ListFinishedWmsShortageAllocations extends ListRecords
 
                         try {
                             $syncService = app(AllocationSyncService::class);
-                            $result = $syncService->syncByWarehouse($warehouseId);
+                            $shipmentDate = ClientSetting::systemDate(true)?->toDateString();
+                            if (! $shipmentDate) {
+                                Notification::make()->title('出荷日が取得できません')->warning()->send();
+
+                                return;
+                            }
+
+                            $result = $syncService->syncByWarehouse($warehouseId, $shipmentDate);
 
                             if ($result['syncedCount'] === 0 && empty($result['errors'])) {
                                 Notification::make()

@@ -2952,20 +2952,31 @@
                             "items": {
                               "type": "object",
                               "properties": {
-                                "item_id": {
+                                "i": {
+                                  "description": "商品ID。itemsエンドポイントのitem_idと一致",
                                   "type": "integer"
                                 },
-                                "quantity_type": {
+                                "ct": {
+                                  "description": "コード種別。例: JAN / OTHER",
+                                  "type": "string"
+                                },
+                                "t": {
+                                  "description": "数量種別。0=バラ、1=ケース、2=ボール、9=その他",
                                   "type": "string",
-                                  "enum": ["PIECE", "CASE"]
+                                  "enum": ["0", "1", "2", "9"]
+                                },
+                                "q": {
+                                  "description": "ケース入力時の換算入数。t=0はitems.capacity_case、t=1はJANコード別入数",
+                                  "type": "integer",
+                                  "minimum": 1
                                 }
                               }
                             }
                           },
                           "example": {
-                            "4901234567890": [{"item_id": 100, "quantity_type": "PIECE"}],
-                            "14901234567897": [{"item_id": 100, "quantity_type": "CASE"}],
-                            "4902110352689": [{"item_id": 200, "quantity_type": "PIECE"}, {"item_id": 301, "quantity_type": "PIECE"}]
+                            "4901234567890": [{"i": 100, "ct": "JAN", "t": "0", "q": 12}],
+                            "14901234567897": [{"i": 100, "ct": "JAN", "t": "1", "q": 6}],
+                            "4902110352689": [{"i": 200, "ct": "JAN", "t": "0", "q": 12}, {"i": 301, "ct": "JAN", "t": "0", "q": 24}]
                           }
                         }
                       }

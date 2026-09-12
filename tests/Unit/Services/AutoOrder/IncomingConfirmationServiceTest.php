@@ -4,6 +4,7 @@ namespace Tests\Unit\Services\AutoOrder;
 
 use App\Enums\AutoOrder\IncomingScheduleStatus;
 use App\Enums\AutoOrder\OrderSource;
+use App\Enums\QuantityType;
 use App\Models\WmsOrderIncomingSchedule;
 use App\Services\AutoOrder\IncomingConfirmationService;
 use Illuminate\Support\Facades\DB;
@@ -17,12 +18,23 @@ use Tests\TestCase;
  */
 class IncomingConfirmationServiceTest extends TestCase
 {
+    private const TEST_SLIP_PREFIX = 'UTIC';
+
     private IncomingConfirmationService $service;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->service = app(IncomingConfirmationService::class);
+    }
+
+    protected function tearDown(): void
+    {
+        WmsOrderIncomingSchedule::query()
+            ->where('slip_number', 'like', self::TEST_SLIP_PREFIX.'%')
+            ->delete();
+
+        parent::tearDown();
     }
 
     /**
@@ -33,6 +45,111 @@ class IncomingConfirmationServiceTest extends TestCase
     {
         $service = app(IncomingConfirmationService::class);
         $this->assertInstanceOf(IncomingConfirmationService::class, $service);
+    }
+
+    /**
+     * @test
+     * 入荷確定時の保存数量は既存入荷済数量と今回入力数量の合計になること
+     */
+    public function it_resolves_confirmed_received_quantity_from_existing_and_entered_quantities(): void
+    {
+        $pendingSchedule = new WmsOrderIncomingSchedule([
+            'expected_quantity' => 10,
+            'received_quantity' => 0,
+        ]);
+
+        $partialSchedule = new WmsOrderIncomingSchedule([
+            'expected_quantity' => 10,
+            'received_quantity' => 3,
+        ]);
+
+        $this->assertSame(12, $this->service->resolveConfirmedReceivedQuantity($pendingSchedule, 12));
+        $this->assertSame(10, $this->service->resolveConfirmedReceivedQuantity($partialSchedule, 7));
+    }
+
+    /**
+     * @test
+     * 予定数量未満で手動確定した場合は一部入荷ではなく欠品数つきの入荷完了になること
+     */
+    public function it_confirms_manual_short_received_quantity_as_shortage(): void
+    {
+        $schedule = $this->createManualSchedule(expectedQuantity: 10);
+
+        $confirmed = $this->service->confirmIncoming(
+            $schedule,
+            1,
+            4,
+            '2026-07-22'
+        );
+
+        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $confirmed->status);
+        $this->assertSame(4, $confirmed->received_quantity);
+        $this->assertSame(6, $confirmed->shortage_quantity);
+        $this->assertSame('2026-07-22', $confirmed->actual_arrival_date?->format('Y-m-d'));
+        $this->assertNull($confirmed->purchase_queue_id);
+    }
+
+    /**
+     * @test
+     * 手動の一部入荷は仕入連携可能な完了行を作り、元の予定は残数量として残ること
+     */
+    public function it_splits_manual_partial_incoming_into_confirmed_purchase_schedule_and_remaining_schedule(): void
+    {
+        $schedule = $this->createManualSchedule(expectedQuantity: 10);
+
+        $confirmedSchedule = $this->service->recordPartialIncoming(
+            $schedule,
+            4,
+            1,
+            '2026-07-22'
+        );
+
+        $schedule->refresh();
+
+        $this->assertNotSame($schedule->id, $confirmedSchedule->id);
+        $this->assertSame($schedule->slip_number, $confirmedSchedule->slip_number);
+
+        $this->assertSame(6, $schedule->expected_quantity);
+        $this->assertSame(0, $schedule->received_quantity);
+        $this->assertSame(IncomingScheduleStatus::PENDING, $schedule->status);
+        $this->assertNull($schedule->purchase_queue_id);
+
+        $this->assertSame(4, $confirmedSchedule->expected_quantity);
+        $this->assertSame(4, $confirmedSchedule->received_quantity);
+        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $confirmedSchedule->status);
+        $this->assertSame('2026-07-22', $confirmedSchedule->actual_arrival_date?->format('Y-m-d'));
+        $this->assertNull($confirmedSchedule->purchase_queue_id);
+        $this->assertTrue(WmsOrderIncomingSchedule::query()->readyForIncomingTransmission()->whereKey($confirmedSchedule->id)->exists());
+    }
+
+    /**
+     * @test
+     * 既存の一部入荷データは未送信の入荷済数量を含めて完了行に切り出すこと
+     */
+    public function it_folds_legacy_partial_received_quantity_into_first_split_completion(): void
+    {
+        $schedule = $this->createManualSchedule(
+            expectedQuantity: 10,
+            receivedQuantity: 3,
+            status: IncomingScheduleStatus::PARTIAL
+        );
+
+        $confirmedSchedule = $this->service->recordPartialIncoming(
+            $schedule,
+            2,
+            1,
+            '2026-07-22'
+        );
+
+        $schedule->refresh();
+
+        $this->assertSame(5, $confirmedSchedule->received_quantity);
+        $this->assertSame(5, $confirmedSchedule->expected_quantity);
+        $this->assertSame(IncomingScheduleStatus::CONFIRMED, $confirmedSchedule->status);
+
+        $this->assertSame(5, $schedule->expected_quantity);
+        $this->assertSame(0, $schedule->received_quantity);
+        $this->assertSame(IncomingScheduleStatus::PENDING, $schedule->status);
     }
 
     /**
@@ -72,7 +189,10 @@ class IncomingConfirmationServiceTest extends TestCase
         $this->assertEquals('PENDING', IncomingScheduleStatus::PENDING->value);
         $this->assertEquals('PARTIAL', IncomingScheduleStatus::PARTIAL->value);
         $this->assertEquals('CONFIRMED', IncomingScheduleStatus::CONFIRMED->value);
+        $this->assertEquals('TRANSMITTED', IncomingScheduleStatus::TRANSMITTED->value);
         $this->assertEquals('CANCELLED', IncomingScheduleStatus::CANCELLED->value);
+        $this->assertEquals('PARTIAL_CANCELLED', IncomingScheduleStatus::PARTIAL_CANCELLED->value);
+        $this->assertEquals('DELETED', IncomingScheduleStatus::DELETED->value);
     }
 
     /**
@@ -258,5 +378,36 @@ class IncomingConfirmationServiceTest extends TestCase
 
         $method = $reflection->getMethod('syncStockTransferId');
         $this->assertTrue($method->isPrivate(), 'syncStockTransferId should be private');
+    }
+
+    private function createManualSchedule(
+        int $expectedQuantity,
+        int $receivedQuantity = 0,
+        IncomingScheduleStatus $status = IncomingScheduleStatus::PENDING
+    ): WmsOrderIncomingSchedule {
+        return WmsOrderIncomingSchedule::query()->create([
+            'warehouse_id' => 999001,
+            'item_id' => 999002,
+            'item_code' => 'UT-ITEM',
+            'search_code' => 'UT-SEARCH',
+            'contractor_id' => 999003,
+            'supplier_id' => 999004,
+            'manual_order_number' => 'UT-MANUAL',
+            'order_source' => OrderSource::MANUAL,
+            'slip_number' => $this->newSlipNumber(),
+            'expected_quantity' => $expectedQuantity,
+            'received_quantity' => $receivedQuantity,
+            'quantity_type' => QuantityType::PIECE,
+            'order_date' => '2026-07-21',
+            'expected_arrival_date' => '2026-07-22',
+            'status' => $status,
+            'unit_price' => 100,
+            'case_price' => 1200,
+        ]);
+    }
+
+    private function newSlipNumber(): string
+    {
+        return self::TEST_SLIP_PREFIX.str_pad((string) random_int(1, 99999999), 8, '0', STR_PAD_LEFT);
     }
 }

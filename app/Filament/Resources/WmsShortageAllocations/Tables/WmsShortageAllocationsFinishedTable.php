@@ -26,6 +26,12 @@ class WmsShortageAllocationsFinishedTable
                     ->sortable()
                     ->alignment('center'),
 
+                TextColumn::make('shipment_date')
+                    ->label('出荷日')
+                    ->date('Y-m-d')
+                    ->sortable()
+                    ->alignment('center'),
+
                 TextColumn::make('shortage.warehouse.name')
                     ->label('元倉庫')
                     ->searchable()

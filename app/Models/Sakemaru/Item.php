@@ -25,6 +25,7 @@ class Item extends CustomModel
     protected $casts = [
         'start_of_sale_date' => NullSetter::class,
         'end_of_sale_date' => NullSetter::class,
+        'p_box_price' => 'integer',
     ];
 
     public function manufacturer(): BelongsTo

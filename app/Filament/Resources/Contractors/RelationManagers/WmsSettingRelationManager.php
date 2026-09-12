@@ -90,6 +90,20 @@ class WmsSettingRelationManager extends RelationManager
                     ->visible(fn (Get $get) => blank($get('transmission_contractor_id')))
                     ->helperText('指定しない場合は手動送信'),
 
+                TextInput::make('jx_transmission_time')
+                    ->label('JX送信時刻（月-土）')
+                    ->type('time')
+                    ->nullable()
+                    ->visible(fn (Get $get) => blank($get('transmission_contractor_id')) && $get('transmission_type') === TransmissionType::JX_FINET->value)
+                    ->helperText('通常運用: 13:40'),
+
+                TextInput::make('jx_transmission_sunday_time')
+                    ->label('JX送信時刻（日）')
+                    ->type('time')
+                    ->nullable()
+                    ->visible(fn (Get $get) => blank($get('transmission_contractor_id')) && $get('transmission_type') === TransmissionType::JX_FINET->value)
+                    ->helperText('通常運用: 23:40'),
+
                 Fieldset::make('送信曜日')
                     ->visible(fn (Get $get) => blank($get('transmission_contractor_id')))
                     ->schema([

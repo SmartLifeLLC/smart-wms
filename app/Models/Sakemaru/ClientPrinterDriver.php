@@ -24,11 +24,15 @@ class ClientPrinterDriver extends Model
         'printer_client_uuid',
         'printer_index',
         'name',
+        'user_name',
+        'printer_key',
+        'can_print_continuously',
         'is_active',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'can_print_continuously' => 'boolean',
         'last_synced_at' => 'datetime',
     ];
 

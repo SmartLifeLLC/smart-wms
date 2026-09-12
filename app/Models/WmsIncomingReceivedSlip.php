@@ -45,6 +45,11 @@ class WmsIncomingReceivedSlip extends WmsModel
         return $this->hasMany(WmsIncomingReceivedDetail::class, 'received_slip_id');
     }
 
+    public function importErrors(): HasMany
+    {
+        return $this->hasMany(WmsIncomingImportError::class, 'received_slip_id');
+    }
+
     public function matchedSchedule(): BelongsTo
     {
         return $this->belongsTo(WmsOrderIncomingSchedule::class, 'matched_schedule_id');

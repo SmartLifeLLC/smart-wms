@@ -95,7 +95,7 @@ class WmsAutoOrderJobControl extends WmsModel
             'created_by' => $createdBy,
             'warehouse_id' => $warehouseId,
             'started_at' => now(),
-            'target_date' => ClientSetting::systemDateYMD(),
+            'target_date' => ClientSetting::freshSystemDateYMD('auto_order_job_control:start'),
             'target_scope' => $scope,
         ]);
     }

@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\WmsOrderConfirmed\Pages;
 
 use App\Enums\AutoOrder\CandidateStatus;
+use App\Enums\AutoOrder\OrderChannel;
+use App\Enums\AutoOrder\OrderDataFileChannel;
 use App\Filament\Concerns\HasWmsUserViews;
 use App\Filament\Resources\WmsOrderConfirmationWaiting\Tables\WmsOrderConfirmationWaitingTable;
 use App\Filament\Resources\WmsOrderConfirmed\WmsOrderConfirmedResource;
@@ -54,15 +56,23 @@ class ListWmsOrderConfirmed extends ListRecords
                             $candidateTable = (new WmsOrderCandidate)->getTable();
 
                             $query
+                                ->whereNull("{$candidateTable}.order_channel")
+                                ->orWhere("{$candidateTable}.order_channel", OrderChannel::FAX->value);
+                        })
+                        ->where(function ($query): void {
+                            $query
+                                ->whereNull('wms_order_data_files.order_channel')
+                                ->orWhere('wms_order_data_files.order_channel', OrderDataFileChannel::FAX->value);
+                        })
+                        ->where(function ($query) {
+                            $candidateTable = (new WmsOrderCandidate)->getTable();
+
+                            $query
                                 ->whereRaw("JSON_CONTAINS(wms_order_data_files.candidate_ids, JSON_ARRAY({$candidateTable}.id))")
                                 ->orWhereNull('wms_order_data_files.candidate_ids');
                         })
                         ->limit(1),
                 ])
-                ->orderBy((new WmsOrderCandidate)->getTable().'.modified_at', 'desc')
-                ->orderBy('batch_code', 'desc')
-                ->orderBy((new WmsOrderCandidate)->getTable().'.warehouse_id')
-                ->orderBy((new WmsOrderCandidate)->getTable().'.item_id')
             );
     }
 
@@ -135,7 +145,6 @@ class ListWmsOrderConfirmed extends ListRecords
         }
 
         $warehouseIds = WmsOrderCandidate::whereIn('status', [CandidateStatus::CONFIRMED, CandidateStatus::EXECUTED])
-            ->forCreatedBy(auth()->id())
             ->distinct()
             ->pluck('warehouse_id')
             ->toArray();

@@ -26,6 +26,7 @@ class Location extends CustomModel
         'available_quantity_flags' => 'integer',
         'temperature_type' => TemperatureType::class,
         'is_restricted_area' => 'boolean',
+        'is_disabled' => 'boolean',
     ];
 
     protected static function booted(): void
@@ -119,6 +120,7 @@ class Location extends CustomModel
             ->where('code1', '=', 'Z')
             ->where('code2', '=', '0')
             ->where('code3', '=', '0')
+            ->where('is_disabled', false)
             ->first();
     }
 
@@ -127,6 +129,19 @@ class Location extends CustomModel
         $user = auth()->user();
         $client_id = $client_id ?? $user?->client_id;
         $warehouse_id = $warehouse_id ?? $user?->warehouse?->id;
+
+        $location = Location::query()
+            ->where('client_id', $client_id)
+            ->where('warehouse_id', $warehouse_id)
+            ->where('code1', 'Z')
+            ->where('code2', '0')
+            ->where('code3', '0')
+            ->where('is_disabled', false)
+            ->first();
+
+        if ($location) {
+            return $location;
+        }
 
         return Location::firstOrCreate([
             'client_id' => $client_id,
