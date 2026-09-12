@@ -14,6 +14,7 @@ use App\Services\InventoryCount\InventoryEnteredListWorkbookService;
 use App\Services\InventoryCount\InventoryInstructionPdfService;
 use App\Services\InventoryCount\InventoryInstructionSheetPdfService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
@@ -1597,8 +1598,23 @@ class ViewWmsInventoryCount extends Page implements HasForms
                 ->icon('heroicon-o-document-arrow-down')
                 ->color('gray')
                 ->visible(fn () => $record->status !== WmsInventoryCount::STATUS_CANCELLED)
-                ->action(function () use ($record) {
-                    $pdfContent = (new InventoryInstructionPdfService)->generate($record);
+                ->schema([
+                    Checkbox::make('exclude_zero_theory')
+                        ->label('理論在庫0を省く')
+                        ->helperText('理論在庫が0の商品をJANブックから除外します。')
+                        ->default(false),
+                ])
+                ->modalHeading('JANブックダウンロード')
+                ->modalDescription('出力条件を選択してJANブックをダウンロードします。')
+                ->extraModalWindowAttributes(['class' => 'incoming-detail-modal'])
+                ->modalFooterActionsAlignment(Alignment::End)
+                ->modalSubmitAction(fn ($action) => $action->makeModalSubmitAction('submit', [])->label('ダウンロード')->color('danger'))
+                ->modalCancelActionLabel('ダウンロードせず閉じる')
+                ->action(function (array $data) use ($record) {
+                    $pdfContent = (new InventoryInstructionPdfService)->generate(
+                        $record,
+                        (bool) ($data['exclude_zero_theory'] ?? false)
+                    );
                     $filename = 'JANブック_'.($record->count_no ?? 'unknown').'.pdf';
 
                     return response()->streamDownload(
