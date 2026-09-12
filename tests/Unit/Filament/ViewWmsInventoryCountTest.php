@@ -104,6 +104,18 @@ class ViewWmsInventoryCountTest extends TestCase
         $this->assertStringContainsString("\$filename = '棚卸未カウント_'.\$this->activeRoundLabel().'_'.", $page);
     }
 
+    public function test_jan_book_action_can_exclude_zero_theory_items(): void
+    {
+        $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));
+
+        $this->assertStringContainsString("Action::make('downloadInstructionPdf')", $page);
+        $this->assertStringContainsString("Checkbox::make('exclude_zero_theory')", $page);
+        $this->assertStringContainsString("->label('理論在庫0を省く')", $page);
+        $this->assertStringContainsString('JANブックダウンロード', $page);
+        $this->assertStringContainsString('InventoryInstructionPdfService)->generate(', $page);
+        $this->assertStringContainsString("(bool) (\$data['exclude_zero_theory'] ?? false)", $page);
+    }
+
     public function test_difference_workbook_action_is_placed_after_uncounted_pdf(): void
     {
         $page = file_get_contents(app_path('Filament/Resources/WmsInventoryCount/Pages/ViewWmsInventoryCount.php'));

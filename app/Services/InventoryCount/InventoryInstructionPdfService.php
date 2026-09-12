@@ -4,6 +4,7 @@ namespace App\Services\InventoryCount;
 
 use App\Models\WmsInventoryCount;
 use App\Models\WmsInventoryCountItem;
+use Illuminate\Support\Facades\Schema;
 use TCPDF;
 
 /**
@@ -96,9 +97,9 @@ class InventoryInstructionPdfService
     /**
      * JANブックPDF生成
      */
-    public function generate(WmsInventoryCount $inventoryCount): string
+    public function generate(WmsInventoryCount $inventoryCount, bool $excludeZeroTheory = false): string
     {
-        $items = $this->queryItems($inventoryCount);
+        $items = $this->queryItems($inventoryCount, $excludeZeroTheory);
         $janCodes = (new InventoryJanCodeResolver)->forItems($items);
 
         $this->initPdf();
@@ -156,11 +157,17 @@ class InventoryInstructionPdfService
     /**
      * @return \Illuminate\Database\Eloquent\Collection<WmsInventoryCountItem>
      */
-    private function queryItems(WmsInventoryCount $inventoryCount): \Illuminate\Database\Eloquent\Collection
+    private function queryItems(WmsInventoryCount $inventoryCount, bool $excludeZeroTheory = false): \Illuminate\Database\Eloquent\Collection
     {
-        return WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
+        $query = WmsInventoryCountItem::where('inventory_count_id', $inventoryCount->id)
             ->withoutOwnedSetItems()
-            ->with(['item'])
+            ->with(['item']);
+
+        if ($excludeZeroTheory) {
+            $query->whereRaw($this->systemQuantityExpression().' != 0');
+        }
+
+        return $query
             ->orderByRaw("
                 CASE
                     WHEN location_id IS NULL
@@ -175,6 +182,15 @@ class InventoryInstructionPdfService
             ->orderBy('location_code3')
             ->orderBy('item_code')
             ->get();
+    }
+
+    private function systemQuantityExpression(): string
+    {
+        if (Schema::connection('sakemaru')->hasColumn('wms_inventory_count_items', 'ending_system_quantity')) {
+            return 'COALESCE(ending_system_quantity, system_quantity)';
+        }
+
+        return 'system_quantity';
     }
 
     private function buildHeader(WmsInventoryCount $inventoryCount): array
